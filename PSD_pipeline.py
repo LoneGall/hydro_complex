@@ -233,11 +233,21 @@ def process_psd_pipeline(input_filename, channel_indices=None):
     
     # 5. ВЫВОД
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_dir = f'output_{timestamp}/'
+    base_name = os.path.splitext(os.path.basename(input_filename))[0]
+    
+    # Корневая папка для всех результатов
+    root_output_dir = 'output'
+    os.makedirs(root_output_dir, exist_ok=True)
+    
+    # Папка конкретного запуска
+    output_dir_name = f"output_{base_name}_{timestamp}"
+    output_dir = os.path.join(root_output_dir, output_dir_name)
     os.makedirs(output_dir, exist_ok=True)
     
-    report_file = write_results(output_dir, input_filename, times, data, 
-                              headers, dc_offsets, test_results, freqs, psd_data)
+    report_file = write_results(
+        output_dir, input_filename, times, data,
+        headers, dc_offsets, test_results, freqs, psd_data
+    )
     
     print(f"✅ Готово: {output_dir}")
     print(f"📄 Отчёт: {os.path.basename(report_file)}")
@@ -252,4 +262,5 @@ def process_psd_pipeline(input_filename, channel_indices=None):
 
 if __name__ == "__main__":
     # Пример запуска
-    output_dir = process_psd_pipeline('Pres_r1.csv', channel_indices=[0,1,2,3])
+    #output_dir = process_psd_pipeline('Pres_r1.csv', channel_indices=[0,1,2,3])
+    output_dir = process_psd_pipeline('Pres_r2_LONGER.csv',)
