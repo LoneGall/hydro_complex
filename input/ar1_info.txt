@@ -1,0 +1,8 @@
+Type: ar1_process
+FS: 1000.0
+N: 100000
+ar_coefficient: 0.8
+noise_variance: 1.0
+theoretical_variance: sigma_w2/(1-a^2) = 2.777778
+variance (sample): 2.774792
+theoretical_psd_formula: S(f) = 2*sigma_w2/FS / |1 - a*exp(-j*2*pi*f/FS)|^2

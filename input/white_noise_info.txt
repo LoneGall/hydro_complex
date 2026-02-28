@@ -1,0 +1,6 @@
+Type: white_gaussian_noise
+FS: 1000.0
+N: 100000
+sigma2: 1.0
+theoretical_psd_constant: 2*sigma2/FS = 0.002000
+variance (sample): 1.001813

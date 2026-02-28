@@ -1,0 +1,7 @@
+Type: two_sines
+FS: 1000.0
+N: 1000
+frequencies: [10.0, 20.0]
+amplitudes: [1.0, 0.5]
+theoretical_powers: [0.500000, 0.125000]
+variance (sample): 0.625626
