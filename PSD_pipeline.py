@@ -263,4 +263,4 @@ def process_psd_pipeline(input_filename, channel_indices=None):
 if __name__ == "__main__":
     # Пример запуска
     #output_dir = process_psd_pipeline('Pres_r1.csv', channel_indices=[0,1,2,3])
-    output_dir = process_psd_pipeline('Pres_r2_LONGER.csv',)
+    output_dir = process_psd_pipeline('Pres_r1_LONGER.csv',)
