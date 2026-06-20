@@ -1,0 +1,6 @@
+{
+    "trend_threshold_pct": 10.0,
+    "acf_threshold": 0.98,
+    "ergodic_threshold_pct": 15.0,
+    "dt_variance_threshold": 0.01
+}

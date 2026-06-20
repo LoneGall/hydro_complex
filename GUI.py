@@ -3,8 +3,10 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-import pandas as pd
 import numpy as np
+
+# Подключаем наш пайплайн
+import PSD_pipeline
 
 class PSDApp:
     def __init__(self, root):
@@ -15,13 +17,18 @@ class PSDApp:
         # Переменные для хранения состояния
         self.work_dir = ""
         self.current_file = None
-        self.data = None          # DataFrame с загруженным файлом
-        self.time = None          # столбец времени
-        self.channels = []         # список названий каналов (без времени)
+        self.times = None          # массив времени
+        self.data = None           # numpy массив данных
+        self.headers = []          # список названий каналов
         self.current_channel = None
-        self.psd_method = tk.StringVar(value="whole")  # whole, bartlett, welch
+        self.psd_method = tk.StringVar(value="whole")  # whole, bartlett, welch (bartlett/welch пока не реализованы в пайплайне)
         self.segment_length = tk.IntVar(value=256)
         self.overlap = tk.DoubleVar(value=0.5)
+        self.cutoff_hz = tk.DoubleVar(value=0.0) # Переменная для частоты отсечки
+
+        # Результаты вычислений PSD (рассчитываются один раз при загрузке файла)
+        self.freqs = None
+        self.psd_data = None       # numpy массив PSD всех каналов
 
         # Создание интерфейса
         self.create_widgets()
@@ -66,23 +73,36 @@ class PSDApp:
         self.channel_listbox.bind('<<ListboxSelect>>', self.on_channel_select)
 
         # Настройки PSD
-        psd_frame = ttk.LabelFrame(left_frame, text="Метод вычисления PSD", padding=5)
+        psd_frame = ttk.LabelFrame(left_frame, text="Настройки PSD и вывода", padding=5)
         psd_frame.pack(fill=tk.X, padx=5, pady=5)
 
-        ttk.Radiobutton(psd_frame, text="Whole record", variable=self.psd_method, value="whole").pack(anchor=tk.W)
-        ttk.Radiobutton(psd_frame, text="Бартлетт (без перекрытия)", variable=self.psd_method, value="bartlett").pack(anchor=tk.W)
-        ttk.Radiobutton(psd_frame, text="Уэлч (с перекрытием)", variable=self.psd_method, value="welch").pack(anchor=tk.W)
+        ttk.Radiobutton(psd_frame, text="Whole record (FFT)", variable=self.psd_method, value="whole").pack(anchor=tk.W)
+        # Заглушки для будущих методов
+        ttk.Radiobutton(psd_frame, text="Бартлетт (в разработке)", variable=self.psd_method, value="bartlett", state=tk.DISABLED).pack(anchor=tk.W)
+        ttk.Radiobutton(psd_frame, text="Уэлч (в разработке)", variable=self.psd_method, value="welch", state=tk.DISABLED).pack(anchor=tk.W)
 
-        # Параметры (пока заглушки, можно будет активировать)
+        # Параметры методов
         param_frame = ttk.Frame(psd_frame)
         param_frame.pack(fill=tk.X, pady=5)
         ttk.Label(param_frame, text="Длина сегмента:").grid(row=0, column=0, sticky=tk.W)
-        ttk.Entry(param_frame, textvariable=self.segment_length, width=8).grid(row=0, column=1, padx=5)
+        seg_entry = ttk.Entry(param_frame, textvariable=self.segment_length, width=8, state=tk.DISABLED)
+        seg_entry.grid(row=0, column=1, padx=5)
         ttk.Label(param_frame, text="Перекрытие (0-1):").grid(row=1, column=0, sticky=tk.W)
-        ttk.Entry(param_frame, textvariable=self.overlap, width=8).grid(row=1, column=1, padx=5)
+        ov_entry = ttk.Entry(param_frame, textvariable=self.overlap, width=8, state=tk.DISABLED)
+        ov_entry.grid(row=1, column=1, padx=5)
 
-        # Кнопка записи
-        ttk.Button(psd_frame, text="Запись PSD текущего канала", command=self.save_psd).pack(pady=10)
+        # Частота отсечки вывода
+        cutoff_frame = ttk.Frame(psd_frame)
+        cutoff_frame.pack(fill=tk.X, pady=5)
+        ttk.Label(cutoff_frame, text="Отсечка (Гц, 0=всё):").grid(row=0, column=0, sticky=tk.W)
+        ttk.Entry(cutoff_frame, textvariable=self.cutoff_hz, width=10).grid(row=0, column=1, padx=5)
+
+        # Кнопки действий
+        btn_frame = ttk.Frame(left_frame, padding=5)
+        btn_frame.pack(fill=tk.X, padx=5, pady=5)
+
+        ttk.Button(btn_frame, text="Запись PSD текущего канала", command=self.save_psd).pack(fill=tk.X, pady=2)
+        ttk.Button(btn_frame, text="▶ Запустить полный пайплайн", command=self.run_full_pipeline).pack(fill=tk.X, pady=2)
 
         # ---------- Правая панель ----------
         # График временного ряда (сверху)
@@ -101,7 +121,6 @@ class PSDApp:
         self.psd_ax.set_xlabel("Частота, Гц")
         self.psd_ax.set_ylabel("PSD")
 
-        # Небольшая настройка отступов
         plt.tight_layout()
 
     def browse_directory(self):
@@ -130,32 +149,43 @@ class PSDApp:
         if not selection:
             return
         filename = self.file_listbox.get(selection[0])
-        filepath = os.path.join(self.work_dir, "input", filename)
+        
         try:
-            # Загружаем CSV: предполагаем разделитель запятая, десятичная точка
-            self.data = pd.read_csv(filepath, sep=',', decimal='.')
-            # Проверяем наличие хотя бы двух столбцов (время + хотя бы один сигнал)
-            if self.data.shape[1] < 2:
-                messagebox.showerror("Ошибка", "Файл должен содержать как минимум столбец времени и один сигнал.")
-                return
-            # Первый столбец - время
-            self.time = self.data.iloc[:, 0]
-            # Остальные - каналы
-            self.channels = list(self.data.columns[1:])
+            # Используем функцию чтения из пайплайна!
+            self.times, self.data, self.headers, _ = PSD_pipeline.read_csv_input(self.work_dir, filename)
+            self.current_file = filename
+            
             # Заполняем список каналов
             self.channel_listbox.delete(0, tk.END)
-            for ch in self.channels:
+            for ch in self.headers:
                 self.channel_listbox.insert(tk.END, ch)
-            # Добавляем специальный пункт "Все каналы (огибающая)"
             self.channel_listbox.insert(tk.END, "Все каналы (огибающая)")
-            self.current_file = filename
+            
+            # Рассчитываем PSD для всех каналов сразу при загрузке
+            self.compute_all_psd()
+            
             # Очищаем графики
             self.time_ax.clear()
             self.psd_ax.clear()
             self.time_canvas.draw()
             self.psd_canvas.draw()
-        except Exception as e:
+            
+        except (FileNotFoundError, ValueError) as e:
             messagebox.showerror("Ошибка загрузки файла", str(e))
+            self.current_file = None
+
+    def compute_all_psd(self):
+        """Вычисляет PSD для всех каналов текущего файла"""
+        if self.times is None or self.data is None:
+            return
+        
+        try:
+            # Вызов расчета из пайплайна (пока только whole FFT)
+            self.freqs, self.psd_data = PSD_pipeline.compute_psd_fft(self.times, self.data)
+        except Exception as e:
+            messagebox.showerror("Ошибка расчета PSD", str(e))
+            self.freqs = None
+            self.psd_data = None
 
     def on_channel_select(self, event):
         """Обработчик выбора канала из списка."""
@@ -163,36 +193,59 @@ class PSDApp:
         if not selection or self.data is None:
             return
         idx = selection[0]
+        
         # Определяем, выбран ли пункт "Все каналы"
-        if idx == len(self.channels):  # последний пункт
+        if idx == len(self.headers):  # последний пункт
             self.current_channel = "all"
             self.update_plots_for_all()
         else:
-            self.current_channel = self.channels[idx]
-            self.update_plots_for_channel(self.current_channel)
+            self.current_channel = self.headers[idx]
+            self.update_plots_for_channel(idx)
 
-    def update_plots_for_channel(self, channel_name):
+    def get_cutoff_xlim(self):
+        """Возвращает предел по X для графиков на основе отсечки"""
+        try:
+            cutoff = self.cutoff_hz.get()
+        except tk.TclError:
+            cutoff = 0
+            
+        if cutoff <= 0 or (self.freqs is not None and cutoff >= self.freqs[-1]):
+            return self.freqs[-1] if self.freqs is not None else 30 # Весь диапазон (Найквист)
+        return cutoff
+
+    def update_plots_for_channel(self, channel_idx):
         """Обновляет графики для конкретного канала."""
-        if self.data is None:
+        if self.data is None or self.psd_data is None:
             return
+
+        channel_name = self.headers[channel_idx]
 
         # Временной ряд
         self.time_ax.clear()
-        self.time_ax.plot(self.time, self.data[channel_name], color='blue')
+        self.time_ax.plot(self.times, self.data[:, channel_idx], color='blue', linewidth=0.8)
         self.time_ax.set_title(f"Временной ряд: {channel_name}")
         self.time_ax.set_xlabel("Время, с")
         self.time_ax.set_ylabel("Давление")
         self.time_canvas.draw()
 
-        # PSD (пока заглушка - случайный спектр)
-        self.compute_and_plot_psd(self.data[channel_name])
+        # PSD
+        self.psd_ax.clear()
+        self.psd_ax.plot(self.freqs, self.psd_data[channel_idx], color='green', linewidth=0.8)
+        self.psd_ax.set_title(f"PSD (метод: {self.psd_method.get()}) - {channel_name}")
+        self.psd_ax.set_xlabel("Частота, Гц")
+        self.psd_ax.set_ylabel("PSD")
+        self.psd_ax.set_xlim(0, self.get_cutoff_xlim())
+        self.psd_canvas.draw()
+
+        # Сохраняем последние вычисленные значения для возможной записи
+        self.last_psd_freqs = self.freqs
+        self.last_psd_values = self.psd_data[channel_idx]
 
     def update_plots_for_all(self):
-        """Обновляет графики для режима 'все каналы' (только PSD огибающая)."""
-        if self.data is None:
+        """Обновляет графики для режима 'все каналы' (PSD огибающая)."""
+        if self.data is None or self.psd_data is None:
             return
 
-        # Очищаем верхний график и пишем, что временной ряд не отображается
         self.time_ax.clear()
         self.time_ax.text(0.5, 0.5, "Временной ряд не отображается\nв режиме 'Все каналы'",
                           horizontalalignment='center', verticalalignment='center',
@@ -200,97 +253,86 @@ class PSDApp:
         self.time_ax.set_title("Режим: все каналы")
         self.time_canvas.draw()
 
-        # Вычисляем PSD для каждого канала и строим огибающую (максимум)
-        all_psd = []
-        freqs = None
-        for ch in self.channels:
-            # Заглушка: генерируем случайный спектр для демонстрации
-            # В реальности здесь должен быть вызов compute_psd()
-            signal = self.data[ch]
-            psd = self._dummy_psd(signal)
-            all_psd.append(psd)
-            if freqs is None:
-                freqs = np.linspace(0, 100, len(psd))  # заглушка для частот
+        # Огибающая - поэлементный максимум по всем PSD
+        envelope = np.max(self.psd_data, axis=0)
 
-        # Огибающая - поэлементный максимум
-        envelope = np.max(all_psd, axis=0)
-
-        # Рисуем огибающую на нижнем графике
         self.psd_ax.clear()
-        self.psd_ax.plot(freqs, envelope, color='red', linewidth=2, label='Огибающая (максимум)')
-        # Для наглядности можно также показать полупрозрачные спектры всех каналов
-        for i, psd in enumerate(all_psd):
-            self.psd_ax.plot(freqs, psd, color='gray', alpha=0.3, linewidth=0.5)
+        self.psd_ax.plot(self.freqs, envelope, color='red', linewidth=2, label='Огибающая (максимум)')
+        for i, psd in enumerate(self.psd_data):
+            self.psd_ax.plot(self.freqs, psd, color='gray', alpha=0.3, linewidth=0.5)
+            
         self.psd_ax.set_title("PSD: огибающая по всем каналам")
         self.psd_ax.set_xlabel("Частота, Гц")
         self.psd_ax.set_ylabel("PSD")
+        self.psd_ax.set_xlim(0, self.get_cutoff_xlim())
         self.psd_ax.legend()
         self.psd_canvas.draw()
 
-    def compute_and_plot_psd(self, signal):
-        """Вычисляет PSD выбранным методом и обновляет нижний график."""
-        # Здесь должна быть реальная реализация методов
-        # Пока используем заглушку
-        psd = self._dummy_psd(signal)
-        freqs = np.linspace(0, 100, len(psd))  # заглушка для частот
-
-        self.psd_ax.clear()
-        self.psd_ax.plot(freqs, psd, color='green')
-        self.psd_ax.set_title(f"PSD (метод: {self.psd_method.get()})")
-        self.psd_ax.set_xlabel("Частота, Гц")
-        self.psd_ax.set_ylabel("PSD")
-        self.psd_canvas.draw()
-
-        # Сохраняем последние вычисленные значения для возможной записи
-        self.last_psd_freqs = freqs
-        self.last_psd_values = psd
-
-    def _dummy_psd(self, signal):
-        """Заглушка для генерации случайного спектра."""
-        # Просто для демонстрации: берём БПФ от сигнала, но сигнал может быть длинным,
-        # поэтому для скорости возьмём первые 1024 точки, если возможно.
-        n = min(1024, len(signal))
-        sig = signal.values[:n]
-        # Добавим окно Ханна, чтобы спектр был более гладким
-        windowed = sig * np.hanning(n)
-        fft_vals = np.fft.rfft(windowed)
-        psd = np.abs(fft_vals)**2 / (n * 1.0)  # простая оценка
-        return psd
-
     def save_psd(self):
-        """Сохраняет PSD текущего канала в папку output."""
-        if self.current_channel is None:
-            messagebox.showwarning("Предупреждение", "Не выбран канал для сохранения.")
-            return
-        if self.current_channel == "all":
-            messagebox.showinfo("Информация", "В режиме 'Все каналы' сохранение PSD не производится (выберите конкретный канал).")
+        """Сохраняет PSD текущего канала в папку output (одиночный файл)."""
+        if self.current_channel is None or self.current_channel == "all":
+            messagebox.showwarning("Предупреждение", "Выберите конкретный канал для сохранения одиночного PSD.")
             return
         if not hasattr(self, 'last_psd_freqs') or not hasattr(self, 'last_psd_values'):
             messagebox.showerror("Ошибка", "Сначала вычислите PSD (выберите канал).")
             return
 
-        # Создаём папку output, если её нет
         output_dir = os.path.join(self.work_dir, "output")
         os.makedirs(output_dir, exist_ok=True)
 
-        # Формируем имя файла
         base = os.path.splitext(self.current_file)[0]
-        # Очищаем имя канала от возможных пробелов/спецсимволов для имени файла
-        channel_clean = "".join(c for c in self.current_channel if c.isalnum() or c in (' ', '-', '_')).strip()
-        channel_clean = channel_clean.replace(' ', '_')
-        out_filename = f"{base}_PSD_{channel_clean}.csv"
+        channel_clean = "".join(c for c in self.current_channel if c.isalnum() or c in (' ', '-', '_')).strip().replace(' ', '_')
+        
+        # Формируем подпись отсечки
+        try:
+            cutoff = self.cutoff_hz.get()
+        except tk.TclError:
+            cutoff = 0
+            
+        cutoff_label = "full" if cutoff <= 0 else f"{int(cutoff)}-Hz"
+        out_filename = f"{base}_PSD_{channel_clean}_0-{cutoff_label}.csv"
         out_path = os.path.join(output_dir, out_filename)
 
-        # Сохраняем два столбца: частота, PSD
-        df_out = pd.DataFrame({
-            'Frequency': self.last_psd_freqs,
-            'PSD': self.last_psd_values
-        })
+        # Сохраняем с применением маски отсечки
+        if cutoff <= 0 or cutoff >= self.last_psd_freqs[-1]:
+            mask = np.ones_like(self.last_psd_freqs, dtype=bool)
+        else:
+            mask = self.last_psd_freqs <= cutoff
+            
+        data_to_save = np.column_stack([self.last_psd_freqs[mask], self.last_psd_values[mask]])
+        
         try:
-            df_out.to_csv(out_path, sep=',', decimal='.', index=False)
+            np.savetxt(out_path, data_to_save, delimiter=',', header='freq_Hz,PSD_Pa2_Hz')
             messagebox.showinfo("Успех", f"PSD сохранён в:\n{out_path}")
         except Exception as e:
             messagebox.showerror("Ошибка сохранения", str(e))
+
+    def run_full_pipeline(self):
+        """Запускает полный пайплайн PSD_pipeline для текущего файла"""
+        if not self.current_file or not self.work_dir:
+            messagebox.showwarning("Предупреждение", "Сначала выберите рабочую директорию и файл.")
+            return
+            
+        try:
+            cutoff = self.cutoff_hz.get()
+        except tk.TclError:
+            cutoff = 0
+            
+        # Формируем аргумент каналов (пока передаем 0 - все каналы, 
+        # так как GUI не поддерживает множественный выбор)
+        channels_arg = 0
+        
+        try:
+            output_dir = PSD_pipeline.process_psd_pipeline(
+                directory=self.work_dir,
+                filename=self.current_file,
+                channels=channels_arg,
+                cutoff_hz=cutoff
+            )
+            if output_dir:
+                messagebox.showinfo("Успех", f"Полный пайплайн выполнен!\nРезультаты в:\n{output_dir}")
+        except Exception as e:
+            messagebox.showerror("Ошибка пайплайна", str(e))
 
 if __name__ == "__main__":
     root = tk.Tk()
