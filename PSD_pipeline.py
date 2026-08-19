@@ -49,9 +49,10 @@ def create_default_config():
     os.makedirs(CONFIG_DIR, exist_ok=True)
     default_config = {
         "trend_threshold_pct": 10.0,     # Инженерный порог (было 1%)
-        "acf_threshold": 0.98,           # Инжененный порог ACF (было 0.95)
-        "ergodic_threshold_pct": 15.0,   # Инженерный порог эргодичности (было 10%)
-        "dt_variance_threshold": 0.01    # Допустимая дисперсия шага времени (валидация)
+        "acf_threshold": 0.99,           # Инжененный порог ACF (было 0.95)
+        "ergodic_threshold_pct": 25.0,   # Инженерный порог эргодичности (было 10%)
+        "dt_variance_threshold": 0.01,   # Допустимая дисперсия шага времени (валидация)
+        "min_independent_segments": 10   # минимальное количество независимых сегментов
     }
     with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
         json.dump(default_config, f, indent=4)
@@ -107,6 +108,13 @@ def read_csv_input(work_dir, filename):
     # Валидация 4: Монотонность времени
     if not np.all(np.diff(times) > 0):
         raise ValueError("Временной столбец должен быть строго монотонно возрастающим")
+    
+    for i in range(data.shape[1]):
+        x = np.arange(len(data[:, i]))
+        # Полином 1-й степени (линейный тренд)
+        coeffs = np.polyfit(x, data[:, i], 1)
+        trend = np.polyval(coeffs, x)
+        data[:, i] -= trend
         
     # Поканальное удаление DC
     dc_offsets = []
@@ -121,7 +129,20 @@ def read_csv_input(work_dir, filename):
 # 2. МОДУЛЬ ТЕСТИРОВАНИЯ КАЧЕСТВА
 # ============================================================================
 
-def test_channel_quality(signal, config):
+def correlation_time(signal, fs):
+    # Нормированная автокорреляция
+    n = len(signal)
+    norm_signal = signal - np.mean(signal)
+    acf = np.correlate(norm_signal, norm_signal, mode='full') / np.var(signal) / n
+    acf = acf[n-1:]  # Только положительные лаги
+    # Время, где ACF впервые пересекает 0 (или 1/e)
+    idx_zero = np.where(acf < 0.05)[0]
+    if len(idx_zero) > 0:
+        return idx_zero[0] / fs
+    else:
+        return len(signal) / fs  # сигнал длиннее всей записи
+
+def test_channel_quality(signal, fs, config):
     """Тесты стационарности + эргодичности с порогами из конфига"""
     n = len(signal)
     
@@ -134,6 +155,7 @@ def test_channel_quality(signal, config):
     
     # Тест автокорреляции
     autocorr_lag1 = np.corrcoef(signal[:-1], signal[1:])[0, 1]
+    acf_time=correlation_time(signal, fs)
     acf_ok = abs(autocorr_lag1) < config['acf_threshold']
     
     # Тест эргодичности (10 сегментов)
@@ -149,14 +171,16 @@ def test_channel_quality(signal, config):
         'ergodic': ergodic_ok,
         'total_trend_pct': (total_trend / np.std(signal)) * 100,
         'acf_lag1': autocorr_lag1,
+        'acf_time': acf_time,
         'mean_var_ratio': mean_var_ratio * 100
     }
 
-def test_channels(data, config):
+def test_channels(data, config,times):
     """Тестирование всех каналов"""
+    fs = 1 / (times[1] - times[0])
     results = []
     for i in range(data.shape[1]):
-        result = test_channel_quality(data[:, i], config)
+        result = test_channel_quality(data[:, i], fs, config)
         result['channel'] = i
         results.append(result)
     return results
@@ -244,7 +268,7 @@ def write_results(output_dir, input_file, times, data, headers, dc_offsets,
             valid_count += 1
         report_lines.append(
             f"К{r['channel']+1:2d}: тренд={r['total_trend_pct']:5.2f}%, "
-            f"ACF={r['acf_lag1']:6.3f}, эрг={r['mean_var_ratio']:4.1f}% | {status}"
+            f"ACF={r['acf_lag1']:6.3f}, ACF_time={r['acf_time']:6.3f}, эрг={r['mean_var_ratio']:4.1f}% | {status}"
         )
     report_lines.append(f"ВАЛИДНЫХ: {valid_count}/{len(test_results)}")
     report_lines.append("")
@@ -367,7 +391,7 @@ def process_psd_pipeline(directory=None, filename="input.csv", channels=0, cutof
     
     # 3. ТЕСТИРОВАНИЕ
     print("🔍 Тестирование каналов...")
-    test_results = test_channels(data, config)
+    test_results = test_channels(data, config,times)
     
     # 4. PSD
     print("⚡ Вычисление PSD...")
