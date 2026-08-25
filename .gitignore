@@ -1,5 +1,46 @@
-# Игнорировать папку output
+```
+# Output directories
 output/
 
-# Игнорировать все папки, начинающиеся с output_
-output_*/
+# Temporary and cache files
+*.tmp
+*.temp
+*.cache
+
+# Logs
+*.log
+
+# Environment files
+.env
+.env.local
+.env.*
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+venv/
+.venv/
+.env/
+.pytest_cache/
+.mypy_cache/
+.coverage
+coverage/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+```
