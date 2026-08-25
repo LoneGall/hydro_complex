@@ -1,12 +1,27 @@
 import os
+import logging
+from pathlib import Path
+from typing import Optional, List, Tuple, Any
+
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
+
+import numpy as np
+from numpy.typing import NDArray
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-import numpy as np
+from matplotlib.axes import Axes
+from matplotlib.figure import Figure
 
 # Подключаем наш пайплайн
 import PSD_pipeline
+
+# Настройка логгирования
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 class PSDApp:
     def __init__(self, root):
