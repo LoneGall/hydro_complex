@@ -109,26 +109,26 @@ class PSDApp:
         psd_frame = ttk.LabelFrame(left_frame, text="Настройки PSD и вывода", padding=5)
         psd_frame.pack(fill=tk.X, padx=5, pady=5)
 
-        ttk.Radiobutton(psd_frame, text="Whole record (FFT)", variable=self.psd_method, value="whole").pack(anchor=tk.W)
+        ttk.Radiobutton(psd_frame, text="Whole record (FFT)", variable=self.psd_method_var, value="whole").pack(anchor=tk.W)
         # Заглушки для будущих методов
-        ttk.Radiobutton(psd_frame, text="Бартлетт (в разработке)", variable=self.psd_method, value="bartlett", state=tk.DISABLED).pack(anchor=tk.W)
-        ttk.Radiobutton(psd_frame, text="Уэлч (в разработке)", variable=self.psd_method, value="welch", state=tk.DISABLED).pack(anchor=tk.W)
+        ttk.Radiobutton(psd_frame, text="Бартлетт (в разработке)", variable=self.psd_method_var, value="bartlett", state=tk.DISABLED).pack(anchor=tk.W)
+        ttk.Radiobutton(psd_frame, text="Уэлч (в разработке)", variable=self.psd_method_var, value="welch", state=tk.DISABLED).pack(anchor=tk.W)
 
         # Параметры методов
         param_frame = ttk.Frame(psd_frame)
         param_frame.pack(fill=tk.X, pady=5)
         ttk.Label(param_frame, text="Длина сегмента:").grid(row=0, column=0, sticky=tk.W)
-        seg_entry = ttk.Entry(param_frame, textvariable=self.segment_length, width=8, state=tk.DISABLED)
+        seg_entry = ttk.Entry(param_frame, textvariable=self.segment_length_var, width=8, state=tk.DISABLED)
         seg_entry.grid(row=0, column=1, padx=5)
         ttk.Label(param_frame, text="Перекрытие (0-1):").grid(row=1, column=0, sticky=tk.W)
-        ov_entry = ttk.Entry(param_frame, textvariable=self.overlap, width=8, state=tk.DISABLED)
+        ov_entry = ttk.Entry(param_frame, textvariable=self.overlap_var, width=8, state=tk.DISABLED)
         ov_entry.grid(row=1, column=1, padx=5)
 
         # Частота отсечки вывода
         cutoff_frame = ttk.Frame(psd_frame)
         cutoff_frame.pack(fill=tk.X, pady=5)
         ttk.Label(cutoff_frame, text="Отсечка (Гц, 0=всё):").grid(row=0, column=0, sticky=tk.W)
-        ttk.Entry(cutoff_frame, textvariable=self.cutoff_hz, width=10).grid(row=0, column=1, padx=5)
+        ttk.Entry(cutoff_frame, textvariable=self.cutoff_hz_var, width=10).grid(row=0, column=1, padx=5)
 
         # Кнопки действий
         btn_frame = ttk.Frame(left_frame, padding=5)
@@ -264,7 +264,7 @@ class PSDApp:
         # PSD
         self.psd_ax.clear()
         self.psd_ax.plot(self.freqs, self.psd_data[channel_idx], color='green', linewidth=0.8)
-        self.psd_ax.set_title(f"PSD (метод: {self.psd_method.get()}) - {channel_name}")
+        self.psd_ax.set_title(f"PSD (метод: {self.psd_method_var.get()}) - {channel_name}")
         self.psd_ax.set_xlabel("Частота, Гц")
         self.psd_ax.set_ylabel("PSD")
         self.psd_ax.set_xlim(0, self.get_cutoff_xlim())
@@ -340,16 +340,18 @@ class PSDApp:
         except Exception as e:
             messagebox.showerror("Ошибка сохранения", str(e))
 
-    def run_full_pipeline(self):
+    def run_full_pipeline(self) -> None:
         """Запускает полный пайплайн PSD_pipeline для текущего файла"""
         if not self.current_file or not self.work_dir:
+            logger.warning("Попытка запуска пайплайна без выбора файла или директории")
             messagebox.showwarning("Предупреждение", "Сначала выберите рабочую директорию и файл.")
             return
             
         try:
-            cutoff = self.cutoff_hz.get()
+            cutoff = self.cutoff_hz_var.get()
         except tk.TclError:
-            cutoff = 0
+            cutoff = 0.0
+            logger.warning("Некорректное значение частоты отсечки, установлено 0")
             
         # Формируем аргумент каналов (пока передаем 0 - все каналы, 
         # так как GUI не поддерживает множественный выбор)
@@ -363,8 +365,10 @@ class PSDApp:
                 cutoff_hz=cutoff
             )
             if output_dir:
+                logger.info(f"Полный пайплайн выполнен успешно: {output_dir}")
                 messagebox.showinfo("Успех", f"Полный пайплайн выполнен!\nРезультаты в:\n{output_dir}")
         except Exception as e:
+            logger.error(f"Ошибка выполнения пайплайна: {e}")
             messagebox.showerror("Ошибка пайплайна", str(e))
 
 if __name__ == "__main__":
