@@ -24,26 +24,44 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 class PSDApp:
-    def __init__(self, root):
+    def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.root.title("Вычисление PSD сигналов")
         self.root.geometry("1200x700")
 
         # Переменные для хранения состояния
-        self.work_dir = ""
-        self.current_file = None
-        self.times = None          # массив времени
-        self.data = None           # numpy массив данных
-        self.headers = []          # список названий каналов
-        self.current_channel = None
-        self.psd_method = tk.StringVar(value="whole")  # whole, bartlett, welch (bartlett/welch пока не реализованы в пайплайне)
-        self.segment_length = tk.IntVar(value=256)
-        self.overlap = tk.DoubleVar(value=0.5)
-        self.cutoff_hz = tk.DoubleVar(value=0.0) # Переменная для частоты отсечки
+        self.work_dir: str = ""
+        self.current_file: Optional[str] = None
+        self.times: Optional[NDArray[np.float64]] = None          # массив времени
+        self.data: Optional[NDArray[np.float64]] = None           # numpy массив данных
+        self.headers: List[str] = []          # список названий каналов
+        self.current_channel: Optional[str] = None
+        self.psd_method_var: tk.StringVar = tk.StringVar(value="whole")  # whole, bartlett, welch
+        self.segment_length_var: tk.IntVar = tk.IntVar(value=256)
+        self.overlap_var: tk.DoubleVar = tk.DoubleVar(value=0.5)
+        self.cutoff_hz_var: tk.DoubleVar = tk.DoubleVar(value=0.0)
 
-        # Результаты вычислений PSD (рассчитываются один раз при загрузке файла)
-        self.freqs = None
-        self.psd_data = None       # numpy массив PSD всех каналов
+        # Результаты вычислений PSD
+        self.freqs: Optional[NDArray[np.float64]] = None
+        self.psd_data: Optional[NDArray[np.float64]] = None       # numpy массив PSD всех каналов
+        
+        # Последние вычисленные значения для сохранения
+        self.last_psd_freqs: Optional[NDArray[np.float64]] = None
+        self.last_psd_values: Optional[NDArray[np.float64]] = None
+        
+        # Объекты matplotlib для оптимизации отрисовки
+        self.time_fig: Figure
+        self.time_ax: Axes
+        self.time_canvas: FigureCanvasTkAgg
+        self.psd_fig: Figure
+        self.psd_ax: Axes
+        self.psd_canvas: FigureCanvasTkAgg
+        
+        # Ссылки на линии графиков для обновления без перерисовки
+        self.time_line: Optional[Any] = None
+        self.psd_line: Optional[Any] = None
+        self.psd_envelope_line: Optional[Any] = None
+        self.psd_bg_lines: List[Any] = []
 
         # Создание интерфейса
         self.create_widgets()
