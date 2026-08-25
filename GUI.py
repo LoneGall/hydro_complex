@@ -246,60 +246,89 @@ class PSDApp:
             return self.freqs[-1] if self.freqs is not None else 30 # Весь диапазон (Найквист)
         return cutoff
 
-    def update_plots_for_channel(self, channel_idx):
-        """Обновляет графики для конкретного канала."""
+    def update_plots_for_channel(self, channel_idx: int) -> None:
+        """Обновляет графики для конкретного канала с оптимизацией отрисовки."""
         if self.data is None or self.psd_data is None:
             return
 
         channel_name = self.headers[channel_idx]
 
-        # Временной ряд
-        self.time_ax.clear()
-        self.time_ax.plot(self.times, self.data[:, channel_idx], color='blue', linewidth=0.8)
-        self.time_ax.set_title(f"Временной ряд: {channel_name}")
-        self.time_ax.set_xlabel("Время, с")
-        self.time_ax.set_ylabel("Давление")
-        self.time_canvas.draw()
+        # Временной ряд - используем set_data вместо пересоздания
+        if self.time_line is None:
+            self.time_line, = self.time_ax.plot(
+                self.times, self.data[:, channel_idx], 
+                color='blue', linewidth=0.8
+            )
+            self.time_ax.set_title(f"Временной ряд: {channel_name}")
+            self.time_ax.set_xlabel("Время, с")
+            self.time_ax.set_ylabel("Давление")
+        else:
+            self.time_line.set_data(self.times, self.data[:, channel_idx])
+            self.time_ax.set_title(f"Временной ряд: {channel_name}")
+        
+        self.time_canvas.draw_idle()  # Более эффективная отрисовка
 
-        # PSD
-        self.psd_ax.clear()
-        self.psd_ax.plot(self.freqs, self.psd_data[channel_idx], color='green', linewidth=0.8)
-        self.psd_ax.set_title(f"PSD (метод: {self.psd_method_var.get()}) - {channel_name}")
-        self.psd_ax.set_xlabel("Частота, Гц")
-        self.psd_ax.set_ylabel("PSD")
+        # PSD - используем set_data вместо пересоздания
+        if self.psd_line is None:
+            self.psd_line, = self.psd_ax.plot(
+                self.freqs, self.psd_data[channel_idx], 
+                color='green', linewidth=0.8
+            )
+            self.psd_ax.set_title(f"PSD (метод: {self.psd_method_var.get()}) - {channel_name}")
+            self.psd_ax.set_xlabel("Частота, Гц")
+            self.psd_ax.set_ylabel("PSD")
+        else:
+            self.psd_line.set_data(self.freqs, self.psd_data[channel_idx])
+            self.psd_ax.set_title(f"PSD (метод: {self.psd_method_var.get()}) - {channel_name}")
+        
         self.psd_ax.set_xlim(0, self.get_cutoff_xlim())
-        self.psd_canvas.draw()
+        self.psd_canvas.draw_idle()
 
         # Сохраняем последние вычисленные значения для возможной записи
         self.last_psd_freqs = self.freqs
         self.last_psd_values = self.psd_data[channel_idx]
 
-    def update_plots_for_all(self):
-        """Обновляет графики для режима 'все каналы' (PSD огибающая)."""
+    def update_plots_for_all(self) -> None:
+        """Обновляет графики для режима 'все каналы' (PSD огибающая) с оптимизацией."""
         if self.data is None or self.psd_data is None:
             return
 
-        self.time_ax.clear()
-        self.time_ax.text(0.5, 0.5, "Временной ряд не отображается\nв режиме 'Все каналы'",
-                          horizontalalignment='center', verticalalignment='center',
-                          transform=self.time_ax.transAxes, fontsize=12, color='gray')
-        self.time_ax.set_title("Режим: все каналы")
-        self.time_canvas.draw()
+        # Очищаем только при первом создании или если нужно пересоздать фон
+        if not self.psd_bg_lines:
+            self.time_ax.text(0.5, 0.5, "Временной ряд не отображается\nв режиме 'Все каналы'",
+                              horizontalalignment='center', verticalalignment='center',
+                              transform=self.time_ax.transAxes, fontsize=12, color='gray')
+            self.time_ax.set_title("Режим: все каналы")
+            self.time_canvas.draw_idle()
 
-        # Огибающая - поэлементный максимум по всем PSD
-        envelope = np.max(self.psd_data, axis=0)
-
-        self.psd_ax.clear()
-        self.psd_ax.plot(self.freqs, envelope, color='red', linewidth=2, label='Огибающая (максимум)')
-        for i, psd in enumerate(self.psd_data):
-            self.psd_ax.plot(self.freqs, psd, color='gray', alpha=0.3, linewidth=0.5)
+            # Создаем фоновые линии для всех каналов (серые, полупрозрачные)
+            self.psd_bg_lines = []
+            for i, psd in enumerate(self.psd_data):
+                line, = self.psd_ax.plot(
+                    self.freqs, psd, 
+                    color='gray', alpha=0.3, linewidth=0.5
+                )
+                self.psd_bg_lines.append(line)
             
-        self.psd_ax.set_title("PSD: огибающая по всем каналам")
-        self.psd_ax.set_xlabel("Частота, Гц")
-        self.psd_ax.set_ylabel("PSD")
+            # Создаем линию огибающей
+            self.psd_envelope_line, = self.psd_ax.plot([], [], color='red', linewidth=2, label='Огибающая (максимум)')
+            self.psd_ax.set_title("PSD: огибающая по всем каналам")
+            self.psd_ax.set_xlabel("Частота, Гц")
+            self.psd_ax.set_ylabel("PSD")
+            self.psd_ax.legend()
+        
+        # Обновляем данные огибающей
+        envelope = np.max(self.psd_data, axis=0)
+        if self.psd_envelope_line is not None:
+            self.psd_envelope_line.set_data(self.freqs, envelope)
+        
+        # Обновляем данные фоновых линий
+        for i, line in enumerate(self.psd_bg_lines):
+            if i < len(self.psd_data):
+                line.set_data(self.freqs, self.psd_data[i])
+        
         self.psd_ax.set_xlim(0, self.get_cutoff_xlim())
-        self.psd_ax.legend()
-        self.psd_canvas.draw()
+        self.psd_canvas.draw_idle()
 
     def save_psd(self):
         """Сохраняет PSD текущего канала в папку output (одиночный файл)."""
