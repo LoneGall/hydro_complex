@@ -154,24 +154,24 @@ class PSDApp:
             # Используем функцию чтения из пайплайна!
             self.times, self.data, self.headers = PSD_pipeline.read_csv_input(self.work_dir, filename)
             self.current_file = filename
-            
+
             # Заполняем список каналов
             self.channel_listbox.delete(0, tk.END)
             for ch in self.headers:
                 self.channel_listbox.insert(tk.END, ch)
             self.channel_listbox.insert(tk.END, "Все каналы (огибающая)")
-            
+
             # Рассчитываем PSD для всех каналов сразу при загрузке
             self.compute_all_psd()
-            
+
             # Очищаем графики
             self.time_ax.clear()
             self.psd_ax.clear()
             self.time_canvas.draw()
             self.psd_canvas.draw()
-            
-        except (FileNotFoundError, ValueError) as e:
-            messagebox.showerror("Ошибка загрузки файла", str(e))
+
+        except PSD_pipeline.ValidationError as e:
+            messagebox.showerror("Ошибка валидации", str(e))
             self.current_file = None
 
     def compute_all_psd(self):
@@ -329,10 +329,15 @@ class PSDApp:
                 channels=channels_arg,
                 cutoff_hz=cutoff
             )
-            if output_dir:
-                messagebox.showinfo("Успех", f"Полный пайплайн выполнен!\nРезультаты в:\n{output_dir}")
+            messagebox.showinfo("Успех", f"Полный пайплайн выполнен!\nРезультаты в:\n{output_dir}")
+        except PSD_pipeline.ConfigurationError as e:
+            messagebox.showerror("Ошибка конфигурации", str(e))
+        except PSD_pipeline.ValidationError as e:
+            messagebox.showerror("Ошибка валидации", str(e))
+        except PSD_pipeline.ProcessingError as e:
+            messagebox.showerror("Ошибка обработки", str(e))
         except Exception as e:
-            messagebox.showerror("Ошибка пайплайна", str(e))
+            messagebox.showerror("Непредвиденная ошибка", str(e))
 
 if __name__ == "__main__":
     root = tk.Tk()

@@ -41,6 +41,26 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_DIR = os.path.join(SCRIPT_DIR, 'config')
 CONFIG_FILE = os.path.join(CONFIG_DIR, 'quality_thresholds.json')
 
+
+class PipelineError(Exception):
+    """Базовое исключение для ошибок пайплайна PSD"""
+    pass
+
+
+class ConfigurationError(PipelineError):
+    """Ошибка конфигурации"""
+    pass
+
+
+class ValidationError(PipelineError):
+    """Ошибка валидации входных данных"""
+    pass
+
+
+class ProcessingError(PipelineError):
+    """Ошибка обработки данных"""
+    pass
+
 # Настройка логгера
 logger = logging.getLogger(__name__)
 if not logger.handlers:
@@ -99,22 +119,22 @@ def read_csv_input(work_dir, filename):
     """Чтение CSV из папки input/ + DC removal + Валидация"""
     input_dir = os.path.join(work_dir, 'input')
     full_path = os.path.join(input_dir, filename)
-    
+
     # Валидация 1: Существование файла
     if not os.path.exists(full_path):
-        raise FileNotFoundError(f"Файл не найден: {full_path}")
-    
+        raise ValidationError(f"Файл не найден: {full_path}")
+
     times = []
     data = []
-    
+
     with open(full_path, 'r', encoding='utf-8') as file:
         reader = csv.reader(file)
         headers = next(reader)
-        
+
         # Валидация 2: Минимум 2 столбца
         if len(headers) < 2:
-            raise ValueError("CSV должен содержать минимум 2 столбца (Время + 1 Канал)")
-            
+            raise ValidationError("CSV должен содержать минимум 2 столбца (Время + 1 Канал)")
+
         for row_idx, row in enumerate(reader, start=2):
             if not row:
                 continue
@@ -122,18 +142,18 @@ def read_csv_input(work_dir, filename):
                 times.append(float(row[0]))
                 data.append([float(x) for x in row[1:]])
             except ValueError as e:
-                raise ValueError(f"Ошибка формата данных в строке {row_idx}: {e}")
+                raise ValidationError(f"Ошибка формата данных в строке {row_idx}: {e}")
 
     data = np.array(data)
     times = np.array(times)
-    
+
     # Валидация 3: Пустые данные
     if len(times) == 0:
-        raise ValueError("CSV файл не содержит данных (пустой)")
-        
+        raise ValidationError("CSV файл не содержит данных (пустой)")
+
     # Валидация 4: Монотонность времени
     if not np.all(np.diff(times) > 0):
-        raise ValueError("Временной столбец должен быть строго монотонно возрастающим")
+        raise ValidationError("Временной столбец должен быть строго монотонно возрастающим")
 
     for i in range(data.shape[1]):
         x = np.arange(len(data[:, i]))
@@ -399,25 +419,28 @@ def parse_channels_input(channels_input):
 def process_psd_pipeline(directory=None, filename="input.csv", channels=0, cutoff_hz=0):
     """
     Полный пайплайн: Input → Validation → Test → PSD → Output
+    
+    Returns:
+        str: Путь к папке с результатами
+        
+    Raises:
+        ConfigurationError: Ошибка конфигурации
+        ValidationError: Ошибка валидации входных данных
+        ProcessingError: Ошибка обработки данных
     """
-    # 0. ИНИЦИАЛИЗАЦИЯ
+    # 1. ИНИЦИАЛИЗАЦИЯ
     if directory is None:
         directory = SCRIPT_DIR
-        
+
     try:
         channel_indices = parse_channels_input(channels)
         config = load_config()
     except Exception as e:
-        logger.error(f"Ошибка конфигурации: {e}")
-        return
+        raise ConfigurationError(f"Ошибка конфигурации: {e}")
 
-    # 1. ВВОД + ВАЛИДАЦИЯ
+    # 2. ВВОД + ВАЛИДАЦИЯ
     logger.info(f"Чтение {filename} из {directory}...")
-    try:
-        times, data, headers = read_csv_input(directory, filename)
-    except (FileNotFoundError, ValueError) as e:
-        logger.error(f"Ошибка ввода: {e}")
-        return
+    times, data, headers = read_csv_input(directory, filename)
 
     # Валидация индексов каналов
     if channel_indices is not None:
@@ -426,8 +449,7 @@ def process_psd_pipeline(directory=None, filename="input.csv", channels=0, cutof
         if len(valid_indices) != len(channel_indices):
             logger.warning(f"Запрошены каналы {channel_indices}, но в файле только {data.shape[1]}. Несуществующие отброшены.")
         if not valid_indices:
-            logger.error("Нет валидных каналов для обработки")
-            return
+            raise ValidationError("Нет валидных каналов для обработки")
         data = data[:, valid_indices]
         headers = [headers[i] for i in valid_indices]
 
@@ -438,33 +460,32 @@ def process_psd_pipeline(directory=None, filename="input.csv", channels=0, cutof
 
     # 4. PSD
     logger.info("Вычисление PSD...")
-    freqs, psd_data = compute_psd_fft(times, data)  # ИСПРАВЛЕНИЕ ПУНКТА 6: убран [:2]
-    
+    freqs, psd_data = compute_psd_fft(times, data)
+
     # 5. ВЫВОД
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     base_name = os.path.splitext(os.path.basename(filename))[0]
-    
+
     root_output_dir = os.path.join(directory, 'output')
     os.makedirs(root_output_dir, exist_ok=True)
-    
+
     output_dir_name = f"output_{base_name}_{timestamp}"
     output_dir = os.path.join(root_output_dir, output_dir_name)
     os.makedirs(output_dir, exist_ok=True)
-    
+
     try:
         report_file = write_results(
             output_dir, filename, times, data,
             headers, test_results, freqs, psd_data, cutoff_hz
         )
     except Exception as e:
-        logger.error(f"Ошибка записи результатов: {e}")
-        return
+        raise ProcessingError(f"Ошибка записи результатов: {e}")
 
     logger.info(f"Готово: {output_dir}")
     logger.info(f"Отчёт: PSD_report.txt")
     logger.info(f"График: PSD_envelope_{cutoff_hz if cutoff_hz else 'full'}.png")
     logger.info(f"CSV: PSD_0-{cutoff_hz if cutoff_hz else 'full'}.csv")
-    
+
     return output_dir
 
 # ============================================================================
