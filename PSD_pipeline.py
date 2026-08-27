@@ -189,9 +189,8 @@ def test_channel_quality(signal, fs, config):
         'mean_var_ratio': mean_var_ratio * 100
     }
 
-def test_channels(data, config,times):
+def test_channels(data, config, fs):
     """Тестирование всех каналов"""
-    fs = 1 / (times[1] - times[0])
     results = []
     for i in range(data.shape[1]):
         result = test_channel_quality(data[:, i], fs, config)
@@ -405,7 +404,8 @@ def process_psd_pipeline(directory=None, filename="input.csv", channels=0, cutof
     
     # 3. ТЕСТИРОВАНИЕ
     print("🔍 Тестирование каналов...")
-    test_results = test_channels(data, config,times)
+    fs = 1 / (times[1] - times[0])
+    test_results = test_channels(data, config, fs)
     
     # 4. PSD
     print("⚡ Вычисление PSD...")
