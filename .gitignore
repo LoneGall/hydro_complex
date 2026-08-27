@@ -3,3 +3,8 @@ output/
 
 # Игнорировать все папки, начинающиеся с output_
 output_*/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
