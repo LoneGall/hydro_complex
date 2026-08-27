@@ -36,6 +36,7 @@ import os
 import json
 import logging
 from datetime import datetime
+from typing import Optional, Union, List, Tuple, Dict, Any
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_DIR = os.path.join(SCRIPT_DIR, 'config')
@@ -74,7 +75,7 @@ if not logger.handlers:
 # 0. КОНФИГУРАЦИЯ КАЧЕСТВА
 # ============================================================================
 
-def create_default_config():
+def create_default_config() -> Dict[str, Any]:
     """Создает конфиг с инженерными порогами, если его нет"""
     os.makedirs(CONFIG_DIR, exist_ok=True)
     default_config = {
@@ -88,7 +89,7 @@ def create_default_config():
         json.dump(default_config, f, indent=4)
     return default_config
 
-def load_config():
+def load_config() -> Dict[str, Any]:
     """Загружает конфиг качества, дополняя недостающие ключи дефолтными значениями"""
     default_config = {
         "trend_threshold_pct": 10.0,
@@ -115,7 +116,7 @@ def load_config():
 # 1. МОДУЛЬ ВВОДА И ВАЛИДАЦИИ
 # ============================================================================
 
-def read_csv_input(work_dir, filename):
+def read_csv_input(work_dir: str, filename: str) -> Tuple[np.ndarray, np.ndarray, List[str]]:
     """Чтение CSV из папки input/ + DC removal + Валидация"""
     input_dir = os.path.join(work_dir, 'input')
     full_path = os.path.join(input_dir, filename)
@@ -173,7 +174,8 @@ def read_csv_input(work_dir, filename):
 # 2. МОДУЛЬ ТЕСТИРОВАНИЯ КАЧЕСТВА
 # ============================================================================
 
-def correlation_time(signal, fs):
+def correlation_time(signal: np.ndarray, fs: float) -> float:
+    """Время корреляции: где ACF впервые пересекает 0.05"""
     # Нормированная автокорреляция
     n = len(signal)
     norm_signal = signal - np.mean(signal)
@@ -186,7 +188,7 @@ def correlation_time(signal, fs):
     else:
         return len(signal) / fs  # сигнал длиннее всей записи
 
-def test_channel_quality(signal, fs, config):
+def test_channel_quality(signal: np.ndarray, fs: float, config: Dict[str, Any]) -> Dict[str, Any]:
     """Тесты стационарности + эргодичности с порогами из конфига"""
     n = len(signal)
     
@@ -219,7 +221,7 @@ def test_channel_quality(signal, fs, config):
         'mean_var_ratio': mean_var_ratio * 100
     }
 
-def test_channels(data, config, fs):
+def test_channels(data: np.ndarray, config: Dict[str, Any], fs: float) -> List[Dict[str, Any]]:
     """Тестирование всех каналов"""
     results = []
     for i in range(data.shape[1]):
@@ -232,7 +234,7 @@ def test_channels(data, config, fs):
 # 3. МОДУЛЬ PSD
 # ============================================================================
 
-def compute_psd_fft(times, data):
+def compute_psd_fft(times: np.ndarray, data: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
     """Базовый PSD через FFT. Возвращает строго 2 значения"""
     dt = times[1] - times[0]
     fs = 1 / dt
@@ -262,8 +264,9 @@ def compute_psd_fft(times, data):
 # 4. МОДУЛЬ ВЫВОДА (Расчеты на полном массиве, отрисовка и CSV по отсечке)
 # ============================================================================
 
-def PSD_int(psd_freq, psd_values, original_signal=None):
-    """Интеграл PSD. ИСПРАВЛЕНИЕ ПУНКТА 6: Всегда возвращает 3 значения"""
+def PSD_int(psd_freq: np.ndarray, psd_values: np.ndarray, 
+            original_signal: Optional[np.ndarray] = None) -> Tuple[float, Optional[float], Optional[float]]:
+    """Интеграл PSD. Всегда возвращает 3 значения"""
     psd_freq = np.real(psd_freq)
     psd_values = np.real(psd_values)
     variance_psd = np.trapz(psd_values, psd_freq)
@@ -277,8 +280,11 @@ def PSD_int(psd_freq, psd_values, original_signal=None):
         
     return variance_psd, variance_signal, parseval_error
 
-def _generate_report(output_dir, input_file, times, data, headers,
-                     test_results, freqs, psd_data, freq_label, plot_mask):
+def _generate_report(output_dir: str, input_file: str, times: np.ndarray, 
+                     data: np.ndarray, headers: List[str],
+                     test_results: List[Dict[str, Any]], 
+                     freqs: np.ndarray, psd_data: np.ndarray, 
+                     freq_label: str, plot_mask: np.ndarray) -> str:
     """Генерация текстового отчёта PSD анализа"""
     fs = 1 / (times[1] - times[0])
     nyquist_freq = freqs[-1]
@@ -330,7 +336,8 @@ def _generate_report(output_dir, input_file, times, data, headers,
     return report_file
 
 
-def _plot_psd_envelope(output_dir, freqs, psd_data, freq_label, plot_xlim):
+def _plot_psd_envelope(output_dir: str, freqs: np.ndarray, psd_data: np.ndarray, 
+                       freq_label: str, plot_xlim: float) -> None:
     """Отрисовка и сохранение графика PSD огибающей"""
     envelope = np.max(psd_data, axis=0)
 
@@ -351,7 +358,8 @@ def _plot_psd_envelope(output_dir, freqs, psd_data, freq_label, plot_xlim):
     plt.close()
 
 
-def _export_psd_csv(output_dir, freqs, psd_data, freq_label, plot_mask):
+def _export_psd_csv(output_dir: str, freqs: np.ndarray, psd_data: np.ndarray, 
+                     freq_label: str, plot_mask: np.ndarray) -> None:
     """Экспорт CSV с данными PSD огибающей"""
     envelope = np.max(psd_data, axis=0)
     csv_filename = f'PSD_0-{freq_label}.csv'
@@ -360,8 +368,11 @@ def _export_psd_csv(output_dir, freqs, psd_data, freq_label, plot_mask):
               delimiter=',', header='freq_Hz,PSD_Pa2_Hz')
 
 
-def write_results(output_dir, input_file, times, data, headers,
-                 test_results, freqs, psd_data, cutoff_hz):
+def write_results(output_dir: str, input_file: str, times: np.ndarray, 
+                  data: np.ndarray, headers: List[str],
+                  test_results: List[Dict[str, Any]], 
+                  freqs: np.ndarray, psd_data: np.ndarray, 
+                  cutoff_hz: float) -> str:
     """ЕДИНЫЙ вывод. Расчеты на FULL диапазоне, визуализация/CSV по отсечке"""
 
     # Динамическая подпись и маска только для CSV/графика
@@ -389,7 +400,7 @@ def write_results(output_dir, input_file, times, data, headers,
 # 5. ОСНОВНОЙ ПАЙПЛАЙН
 # ============================================================================
 
-def parse_channels_input(channels_input):
+def parse_channels_input(channels_input: Union[int, str, List[int], None]) -> Optional[List[int]]:
     """Парсит ввод каналов: строку "0,2,5-8" или список/ноль"""
     if channels_input == 0 or channels_input is None:
         return None
@@ -416,13 +427,22 @@ def parse_channels_input(channels_input):
         
     raise TypeError("Каналы должны быть 0, списком или строкой формата '0,1,5-8'")
 
-def process_psd_pipeline(directory=None, filename="input.csv", channels=0, cutoff_hz=0):
+def process_psd_pipeline(directory: Optional[str] = None, 
+                         filename: str = "input.csv", 
+                         channels: Union[int, str, List[int]] = 0, 
+                         cutoff_hz: float = 0) -> str:
     """
     Полный пайплайн: Input → Validation → Test → PSD → Output
+
+    Args:
+        directory: Рабочая директория, содержащая подпапку input/
+        filename: Имя CSV файла в подпапке input/
+        channels: Номера каналов для обработки (0 или None = все каналы)
+        cutoff_hz: Частота отсечки вывода в Гц (0 = весь диапазон)
     
     Returns:
         str: Путь к папке с результатами
-        
+
     Raises:
         ConfigurationError: Ошибка конфигурации
         ValidationError: Ошибка валидации входных данных
