@@ -34,11 +34,21 @@ import matplotlib.pyplot as plt
 from scipy import stats
 import os
 import json
+import logging
 from datetime import datetime
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_DIR = os.path.join(SCRIPT_DIR, 'config')
 CONFIG_FILE = os.path.join(CONFIG_DIR, 'quality_thresholds.json')
+
+# Настройка логгера
+logger = logging.getLogger(__name__)
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter('%(levelname)s - %(message)s')
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
 
 # ============================================================================
 # 0. КОНФИГУРАЦИЯ КАЧЕСТВА
@@ -398,15 +408,15 @@ def process_psd_pipeline(directory=None, filename="input.csv", channels=0, cutof
         channel_indices = parse_channels_input(channels)
         config = load_config()
     except Exception as e:
-        print(f"❌ Ошибка конфигурации: {e}")
+        logger.error(f"Ошибка конфигурации: {e}")
         return
 
     # 1. ВВОД + ВАЛИДАЦИЯ
-    print(f"📂 Чтение {filename} из {directory}...")
+    logger.info(f"Чтение {filename} из {directory}...")
     try:
         times, data, headers = read_csv_input(directory, filename)
     except (FileNotFoundError, ValueError) as e:
-        print(f"❌ Ошибка ввода: {e}")
+        logger.error(f"Ошибка ввода: {e}")
         return
 
     # Валидация индексов каналов
@@ -414,20 +424,20 @@ def process_psd_pipeline(directory=None, filename="input.csv", channels=0, cutof
         max_ch = data.shape[1] - 1
         valid_indices = [i for i in channel_indices if 0 <= i <= max_ch]
         if len(valid_indices) != len(channel_indices):
-            print(f"⚠️ Внимание: запрошены каналы {channel_indices}, но в файле только {data.shape[1]}. Несуществующие отброшены.")
+            logger.warning(f"Запрошены каналы {channel_indices}, но в файле только {data.shape[1]}. Несуществующие отброшены.")
         if not valid_indices:
-            print("❌ Ошибка: Нет валидных каналов для обработки")
+            logger.error("Нет валидных каналов для обработки")
             return
         data = data[:, valid_indices]
         headers = [headers[i] for i in valid_indices]
-    
+
     # 3. ТЕСТИРОВАНИЕ
-    print("🔍 Тестирование каналов...")
+    logger.info("Тестирование каналов...")
     fs = 1 / (times[1] - times[0])
     test_results = test_channels(data, config, fs)
-    
+
     # 4. PSD
-    print("⚡ Вычисление PSD...")
+    logger.info("Вычисление PSD...")
     freqs, psd_data = compute_psd_fft(times, data)  # ИСПРАВЛЕНИЕ ПУНКТА 6: убран [:2]
     
     # 5. ВЫВОД
@@ -447,13 +457,13 @@ def process_psd_pipeline(directory=None, filename="input.csv", channels=0, cutof
             headers, test_results, freqs, psd_data, cutoff_hz
         )
     except Exception as e:
-        print(f"❌ Ошибка записи результатов: {e}")
+        logger.error(f"Ошибка записи результатов: {e}")
         return
-    
-    print(f"✅ Готово: {output_dir}")
-    print(f"📄 Отчёт: PSD_report.txt")
-    print(f"📈 График: PSD_envelope_{cutoff_hz if cutoff_hz else 'full'}.png")
-    print(f"📊 CSV: PSD_0-{cutoff_hz if cutoff_hz else 'full'}.csv")
+
+    logger.info(f"Готово: {output_dir}")
+    logger.info(f"Отчёт: PSD_report.txt")
+    logger.info(f"График: PSD_envelope_{cutoff_hz if cutoff_hz else 'full'}.png")
+    logger.info(f"CSV: PSD_0-{cutoff_hz if cutoff_hz else 'full'}.csv")
     
     return output_dir
 
