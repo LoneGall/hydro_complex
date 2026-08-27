@@ -59,11 +59,27 @@ def create_default_config():
     return default_config
 
 def load_config():
-    """Загружает конфиг качества"""
+    """Загружает конфиг качества, дополняя недостающие ключи дефолтными значениями"""
+    default_config = {
+        "trend_threshold_pct": 10.0,
+        "acf_threshold": 0.99,
+        "ergodic_threshold_pct": 25.0,
+        "dt_variance_threshold": 0.01,
+        "min_independent_segments": 10
+    }
+    
     if not os.path.exists(CONFIG_FILE):
         return create_default_config()
+    
     with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
-        return json.load(f)
+        config = json.load(f)
+    
+    # Дополняем недостающие ключи дефолтными значениями
+    for key, value in default_config.items():
+        if key not in config:
+            config[key] = value
+    
+    return config
 
 # ============================================================================
 # 1. МОДУЛЬ ВВОДА И ВАЛИДАЦИИ
