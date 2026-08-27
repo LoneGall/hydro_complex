@@ -247,23 +247,13 @@ def PSD_int(psd_freq, psd_values, original_signal=None):
         
     return variance_psd, variance_signal, parseval_error
 
-def write_results(output_dir, input_file, times, data, headers,
-                 test_results, freqs, psd_data, cutoff_hz):
-    """ЕДИНЫЙ вывод. Расчеты на FULL диапазоне, визуализация/CSV по отсечке"""
-    
-    # Динамическая подпись и маска только для CSV/графика
-    nyquist_freq = freqs[-1]
-    if cutoff_hz == 0 or cutoff_hz >= nyquist_freq:
-        plot_mask = np.ones_like(freqs, dtype=bool)
-        freq_label = "full"
-        plot_xlim = nyquist_freq
-    else:
-        plot_mask = freqs <= cutoff_hz
-        freq_label = f"{int(cutoff_hz)}-Hz"
-        plot_xlim = cutoff_hz
-
-    # Основной отчёт
+def _generate_report(output_dir, input_file, times, data, headers,
+                     test_results, freqs, psd_data, freq_label, plot_mask):
+    """Генерация текстового отчёта PSD анализа"""
     fs = 1 / (times[1] - times[0])
+    nyquist_freq = freqs[-1]
+    envelope = np.max(psd_data, axis=0)
+
     report_lines = [f"PSD АНАЛИЗ {input_file}",
                    f"Время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
                    f"Данные: {data.shape[1]} каналов, {len(times)} точек",
@@ -286,54 +276,83 @@ def write_results(output_dir, input_file, times, data, headers,
     report_lines.append(f"ВАЛИДНЫХ: {valid_count}/{len(test_results)}")
     report_lines.append("")
 
-    # ПУНКТ 1: Расчеты Парсеваля делаются на ВСЕМ диапазоне (freqs, psd_data[i])
-    envelope = np.max(psd_data, axis=0)
-    
+    # Расчеты Парсеваля на ВСЕМ диапазоне
     for i in range(data.shape[1]):
         var_psd, var_sig, err = PSD_int(freqs, psd_data[i], data[:,i])
         report_lines.append(f"К{i+1}: σ²_PSD={var_psd:.3e}, σ²_sig={var_sig:.3e}, "
                           f"Парсеваль={err:.2f}%")
-    
+
     # Полная дисперсия огибающей
     var_env_full, _, _ = PSD_int(freqs, envelope)
     rms_env_full = np.sqrt(var_env_full)
     report_lines.append(f"Огибающая (FULL): σ²={var_env_full:.3e}, RMS={rms_env_full:.3e}")
-    
+
     # Дисперсия огибающей в зоне отсечки (если задана)
     if freq_label != "full":
         var_env_cut, _, _ = PSD_int(freqs[plot_mask], envelope[plot_mask])
         rms_env_cut = np.sqrt(var_env_cut)
         report_lines.append(f"Огибающая (0-{freq_label}): σ²={var_env_cut:.3e}, RMS={rms_env_cut:.3e}")
-    
-    # Сохранение отчёта
+
     report_file = os.path.join(output_dir, 'PSD_report.txt')
     with open(report_file, 'w', encoding='utf-8') as f:
         f.write('\n'.join(report_lines))
-    
-    # График: отрисовка ограничена plot_xlim, но данные полные
+
+    return report_file
+
+
+def _plot_psd_envelope(output_dir, freqs, psd_data, freq_label, plot_xlim):
+    """Отрисовка и сохранение графика PSD огибающей"""
+    envelope = np.max(psd_data, axis=0)
+
     plt.figure(figsize=(12, 8))
     for i in range(psd_data.shape[0]):
         plt.plot(freqs, psd_data[i], 'ko', markersize=2, alpha=0.6)
     plt.plot(freqs, envelope, 'r-', linewidth=3, label='Огибающая')
-    
-    # ПУНКТ 1: Динамическая граница X
+
     plt.xlim(0, plot_xlim)
-    
     plt.xlabel('Частота [Гц]')
     plt.ylabel('PSD [Па²/Гц]')
     plt.title(f'Спектральная плотность мощности (до {freq_label})')
     plt.grid(True, alpha=0.3)
     plt.legend()
     plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, f'PSD_envelope_{freq_label}.png'), dpi=300, bbox_inches='tight')
+    plt.savefig(os.path.join(output_dir, f'PSD_envelope_{freq_label}.png'),
+                dpi=300, bbox_inches='tight')
     plt.close()
-    
-    # CSV с данными сохраняется только по отсечке
+
+
+def _export_psd_csv(output_dir, freqs, psd_data, freq_label, plot_mask):
+    """Экспорт CSV с данными PSD огибающей"""
+    envelope = np.max(psd_data, axis=0)
     csv_filename = f'PSD_0-{freq_label}.csv'
     np.savetxt(os.path.join(output_dir, csv_filename),
               np.column_stack([freqs[plot_mask], envelope[plot_mask]]),
               delimiter=',', header='freq_Hz,PSD_Pa2_Hz')
-    
+
+
+def write_results(output_dir, input_file, times, data, headers,
+                 test_results, freqs, psd_data, cutoff_hz):
+    """ЕДИНЫЙ вывод. Расчеты на FULL диапазоне, визуализация/CSV по отсечке"""
+
+    # Динамическая подпись и маска только для CSV/графика
+    nyquist_freq = freqs[-1]
+    if cutoff_hz == 0 or cutoff_hz >= nyquist_freq:
+        plot_mask = np.ones_like(freqs, dtype=bool)
+        freq_label = "full"
+        plot_xlim = nyquist_freq
+    else:
+        plot_mask = freqs <= cutoff_hz
+        freq_label = f"{int(cutoff_hz)}-Hz"
+        plot_xlim = cutoff_hz
+
+    # Вызов подфункций
+    report_file = _generate_report(output_dir, input_file, times, data, headers,
+                                   test_results, freqs, psd_data, freq_label, plot_mask)
+
+    _plot_psd_envelope(output_dir, freqs, psd_data, freq_label, plot_xlim)
+
+    _export_psd_csv(output_dir, freqs, psd_data, freq_label, plot_mask)
+
     return report_file
 
 # ============================================================================
