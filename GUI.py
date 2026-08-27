@@ -152,7 +152,7 @@ class PSDApp:
         
         try:
             # Используем функцию чтения из пайплайна!
-            self.times, self.data, self.headers, _ = PSD_pipeline.read_csv_input(self.work_dir, filename)
+            self.times, self.data, self.headers = PSD_pipeline.read_csv_input(self.work_dir, filename)
             self.current_file = filename
             
             # Заполняем список каналов

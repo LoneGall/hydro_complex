@@ -124,22 +124,20 @@ def read_csv_input(work_dir, filename):
     # Валидация 4: Монотонность времени
     if not np.all(np.diff(times) > 0):
         raise ValueError("Временной столбец должен быть строго монотонно возрастающим")
-    
+
     for i in range(data.shape[1]):
         x = np.arange(len(data[:, i]))
         # Полином 1-й степени (линейный тренд)
         coeffs = np.polyfit(x, data[:, i], 1)
         trend = np.polyval(coeffs, x)
         data[:, i] -= trend
-        
+
     # Поканальное удаление DC
-    dc_offsets = []
     for i in range(data.shape[1]):
         dc = np.mean(data[:, i])
-        dc_offsets.append(dc)
         data[:, i] -= dc
-    
-    return times, data, headers[1:], dc_offsets
+
+    return times, data, headers[1:]
 
 # ============================================================================
 # 2. МОДУЛЬ ТЕСТИРОВАНИЯ КАЧЕСТВА
@@ -250,7 +248,7 @@ def PSD_int(psd_freq, psd_values, original_signal=None):
         
     return variance_psd, variance_signal, parseval_error
 
-def write_results(output_dir, input_file, times, data, headers, dc_offsets, 
+def write_results(output_dir, input_file, times, data, headers,
                  test_results, freqs, psd_data, cutoff_hz):
     """ЕДИНЫЙ вывод. Расчеты на FULL диапазоне, визуализация/CSV по отсечке"""
     
@@ -388,7 +386,7 @@ def process_psd_pipeline(directory=None, filename="input.csv", channels=0, cutof
     # 1. ВВОД + ВАЛИДАЦИЯ
     print(f"📂 Чтение {filename} из {directory}...")
     try:
-        times, data, headers, dc_offsets = read_csv_input(directory, filename)
+        times, data, headers = read_csv_input(directory, filename)
     except (FileNotFoundError, ValueError) as e:
         print(f"❌ Ошибка ввода: {e}")
         return
@@ -427,7 +425,7 @@ def process_psd_pipeline(directory=None, filename="input.csv", channels=0, cutof
     try:
         report_file = write_results(
             output_dir, filename, times, data,
-            headers, dc_offsets, test_results, freqs, psd_data, cutoff_hz
+            headers, test_results, freqs, psd_data, cutoff_hz
         )
     except Exception as e:
         print(f"❌ Ошибка записи результатов: {e}")
