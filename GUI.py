@@ -514,9 +514,11 @@ class PSDApp:
             self.psd_ax.set_title(f"PSD (метод: {self.psd_method_var.get()}) - {channel_name}")
             self.psd_ax.set_xlabel("Частота, Гц")
             self.psd_ax.set_ylabel("PSD")
+            self.psd_canvas.draw_idle()
         else:
             self.psd_line.set_data(self.freqs, self.psd_data[channel_idx])
             self.psd_ax.set_title(f"PSD (метод: {self.psd_method_var.get()}) - {channel_name}")
+            self.psd_canvas.draw_idle()
         
         self.psd_ax.set_xlim(0, self.get_cutoff_xlim())
         self.psd_canvas.draw_idle()
