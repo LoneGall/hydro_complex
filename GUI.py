@@ -388,9 +388,14 @@ class PSDApp:
         self.logger.info(f"Выбран файл: {filename}")
         
         try:
+            # Получаем активный пайплайн PSD
+            psd_pipeline = self.plugin_manager.get_pipeline("PSD Analysis")
+            if not psd_pipeline:
+                raise RuntimeError("Пайплайн 'PSD Analysis' не найден")
+            
             # Вызываем функцию чтения из пайплайна
             # read_csv_input возвращает: times, data, headers, dc_offsets
-            result = PSD_pipeline.read_csv_input(self.work_dir, filename)
+            result = psd_pipeline.read_csv_input(self.work_dir, filename)
             
             # Распаковываем результат
             self.times = result[0]
