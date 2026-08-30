@@ -401,6 +401,22 @@ class PSDApp:
             messagebox.showerror("Ошибка пайплайна", str(e))
 
 if __name__ == "__main__":
+    # Устанавливаем рабочую директорию на уровень выше от текущей, если мы в input/
+    current_dir = Path.cwd()
+    if current_dir.name == "input" and current_dir.parent.name:
+        # Если запущены из папки input, поднимаемся на уровень выше
+        work_dir = current_dir.parent
+        os.chdir(work_dir)
+        logger.info(f"Рабочая директория установлена в: {work_dir}")
+    
     root = tk.Tk()
     app = PSDApp(root)
+    
+    # Автоматически выбираем текущую директорию как рабочую, если она содержит input/
+    if (Path.cwd() / "input").is_dir():
+        app.work_dir = str(Path.cwd())
+        app.dir_label.config(text=app.work_dir)
+        app.scan_input_folder()
+        logger.info(f"Автоматически выбрана рабочая директория: {app.work_dir}")
+    
     root.mainloop()
