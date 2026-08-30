@@ -64,36 +64,17 @@ class PSDPipeline(BasePipeline):
         Args:
             times: Time array (1D)
             data: Data array (2D: samples x channels)
-            method: PSD method ('welch', 'periodogram')
-            nperseg: Segment length
-            noverlap: Overlap length
-            window: Window function
+            method: PSD method (ignored in base FFT version)
+            nperseg: Segment length (ignored in base FFT version)
+            noverlap: Overlap length (ignored in base FFT version)
+            window: Window function (ignored in base FFT version)
             
         Returns:
             Tuple of (frequencies, psd_data) where psd_data is (channels x freqs)
         """
-        # Estimate sampling rate
-        dt = np.mean(np.diff(times))
-        fs = 1.0 / dt if dt > 0 else 1000.0
-        
-        # Compute PSD for each channel
-        all_freqs = None
-        all_psd_data = []
-        
-        for ch_idx in range(data.shape[1]):
-            signal = data[:, ch_idx]
-            freqs, psd = compute_psd_fft(
-                signal=signal,
-                fs=fs,
-                method=method,
-                nperseg=nperseg,
-                noverlap=noverlap,
-                window=window
-            )
-            all_freqs = freqs
-            all_psd_data.append(psd)
-        
-        return all_freqs, np.array(all_psd_data)
+        # Call original function with correct signature (times, data)
+        freqs, psd_data = compute_psd_fft(times, data)
+        return freqs, psd_data
 
     def get_name(self) -> str:
         return "PSD Analysis"
