@@ -1,7 +1,7 @@
 import os
 import logging
 from pathlib import Path
-from typing import Optional, List, Tuple, Any
+from typing import Optional, List, Tuple, Any, Dict
 
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
@@ -13,8 +13,10 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 
-# Подключаем наш пайплайн
-import PSD_pipeline
+# Подключаем систему плагинов
+from core.plugin_manager import PipelineManager
+from core.base_pipeline import PipelineConfig
+import pandas as pd
 
 # Настройка логгирования
 logging.basicConfig(
@@ -27,7 +29,12 @@ class PSDApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.root.title("Вычисление PSD сигналов")
-        self.root.geometry("1200x700")
+        self.root.geometry("1400x800")
+
+        # Менеджер плагинов
+        self.plugin_manager = PipelineManager()
+        self.current_pipeline: Optional[Any] = None
+        self.active_pipeline_name: str = ""
 
         # Переменные для хранения состояния
         self.work_dir: str = ""
@@ -62,13 +69,34 @@ class PSDApp:
         self.psd_line: Optional[Any] = None
         self.psd_envelope_line: Optional[Any] = None
         self.psd_bg_lines: List[Any] = []
+        
+        # Динамические виджеты конфигурации пайплайна
+        self.pipeline_config_widgets: Dict[str, Any] = {}
 
         # Создание интерфейса
         self.create_widgets()
 
     def create_widgets(self):
+        # Создаем вкладки
+        tab_control = ttk.Notebook(self.root)
+        tab_control.pack(fill=tk.BOTH, expand=True)
+        
+        # Вкладка 1: PSD Анализ
+        self.psd_tab = ttk.Frame(tab_control)
+        tab_control.add(self.psd_tab, text="PSD Анализ")
+        
+        # Вкладка 2: Генератор сигналов
+        self.generator_tab = ttk.Frame(tab_control)
+        tab_control.add(self.generator_tab, text="Генератор сигналов")
+        
+        # Создаем интерфейс для каждой вкладки
+        self.create_psd_tab_widgets()
+        self.create_generator_tab_widgets()
+
+    def create_psd_tab_widgets(self):
+        """Создает виджеты вкладки PSD анализа."""
         # Главный контейнер с изменяемыми панелями
-        main_panel = ttk.PanedWindow(self.root, orient=tk.HORIZONTAL)
+        main_panel = ttk.PanedWindow(self.psd_tab, orient=tk.HORIZONTAL)
         main_panel.pack(fill=tk.BOTH, expand=True)
 
         # Левая панель (1/3 ширины)
@@ -89,6 +117,29 @@ class PSDApp:
 
         ttk.Button(dir_frame, text="Обзор...", command=self.browse_directory).pack(pady=5)
 
+        # Выбор пайплайна
+        pipeline_frame = ttk.LabelFrame(left_frame, text="Выбор пайплайна", padding=5)
+        pipeline_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        self.pipeline_var = tk.StringVar(value="PSD Analysis")
+        available_pipelines = self.plugin_manager.get_available_pipelines()
+        if not available_pipelines:
+            available_pipelines = ["Нет доступных плагинов"]
+        
+        self.pipeline_combo = ttk.Combobox(
+            pipeline_frame, 
+            textvariable=self.pipeline_var,
+            values=available_pipelines,
+            state="readonly"
+        )
+        self.pipeline_combo.pack(fill=tk.X, padx=5, pady=5)
+        self.pipeline_combo.bind('<<ComboboxSelected>>', self.on_pipeline_change)
+        
+        # Динамическая конфигурация пайплайна
+        self.config_frame = ttk.LabelFrame(left_frame, text="Настройки пайплайна", padding=5)
+        self.config_frame.pack(fill=tk.X, padx=5, pady=5)
+        self.build_pipeline_config_ui("PSD Analysis")
+
         # Список файлов в input
         file_frame = ttk.LabelFrame(left_frame, text="Файлы в папке input", padding=5)
         file_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
@@ -104,31 +155,6 @@ class PSDApp:
         self.channel_listbox = tk.Listbox(channel_frame, height=8, selectmode=tk.SINGLE)
         self.channel_listbox.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         self.channel_listbox.bind('<<ListboxSelect>>', self.on_channel_select)
-
-        # Настройки PSD
-        psd_frame = ttk.LabelFrame(left_frame, text="Настройки PSD и вывода", padding=5)
-        psd_frame.pack(fill=tk.X, padx=5, pady=5)
-
-        ttk.Radiobutton(psd_frame, text="Whole record (FFT)", variable=self.psd_method_var, value="whole").pack(anchor=tk.W)
-        # Заглушки для будущих методов
-        ttk.Radiobutton(psd_frame, text="Бартлетт (в разработке)", variable=self.psd_method_var, value="bartlett", state=tk.DISABLED).pack(anchor=tk.W)
-        ttk.Radiobutton(psd_frame, text="Уэлч (в разработке)", variable=self.psd_method_var, value="welch", state=tk.DISABLED).pack(anchor=tk.W)
-
-        # Параметры методов
-        param_frame = ttk.Frame(psd_frame)
-        param_frame.pack(fill=tk.X, pady=5)
-        ttk.Label(param_frame, text="Длина сегмента:").grid(row=0, column=0, sticky=tk.W)
-        seg_entry = ttk.Entry(param_frame, textvariable=self.segment_length_var, width=8, state=tk.DISABLED)
-        seg_entry.grid(row=0, column=1, padx=5)
-        ttk.Label(param_frame, text="Перекрытие (0-1):").grid(row=1, column=0, sticky=tk.W)
-        ov_entry = ttk.Entry(param_frame, textvariable=self.overlap_var, width=8, state=tk.DISABLED)
-        ov_entry.grid(row=1, column=1, padx=5)
-
-        # Частота отсечки вывода
-        cutoff_frame = ttk.Frame(psd_frame)
-        cutoff_frame.pack(fill=tk.X, pady=5)
-        ttk.Label(cutoff_frame, text="Отсечка (Гц, 0=всё):").grid(row=0, column=0, sticky=tk.W)
-        ttk.Entry(cutoff_frame, textvariable=self.cutoff_hz_var, width=10).grid(row=0, column=1, padx=5)
 
         # Кнопки действий
         btn_frame = ttk.Frame(left_frame, padding=5)
@@ -155,6 +181,179 @@ class PSDApp:
         self.psd_ax.set_ylabel("PSD")
 
         plt.tight_layout()
+    
+    def create_generator_tab_widgets(self):
+        """Создает виджеты вкладки генератора сигналов."""
+        # Контейнер с панелями
+        gen_panel = ttk.PanedWindow(self.generator_tab, orient=tk.HORIZONTAL)
+        gen_panel.pack(fill=tk.BOTH, expand=True)
+        
+        # Левая панель - настройки
+        left_gen = ttk.Frame(gen_panel, width=450, relief=tk.SUNKEN)
+        gen_panel.add(left_gen, weight=1)
+        
+        # Правая панель - предпросмотр
+        right_gen = ttk.Frame(gen_panel, width=800, relief=tk.SUNKEN)
+        gen_panel.add(right_gen, weight=2)
+        
+        # ---------- Левая панель генератора ----------
+        # Выбор пайплайна генерации
+        gen_pipeline_frame = ttk.LabelFrame(left_gen, text="Пайплайн генерации", padding=5)
+        gen_pipeline_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        self.gen_pipeline_var = tk.StringVar(value="Signal Generator")
+        available_gen_pipelines = [p for p in self.plugin_manager.get_available_pipelines() if "Generator" in p or "generator" in p.lower()]
+        if not available_gen_pipelines:
+            available_gen_pipelines = self.plugin_manager.get_available_pipelines()
+        
+        self.gen_pipeline_combo = ttk.Combobox(
+            gen_pipeline_frame,
+            textvariable=self.gen_pipeline_var,
+            values=available_gen_pipelines,
+            state="readonly"
+        )
+        self.gen_pipeline_combo.pack(fill=tk.X, padx=5, pady=5)
+        self.gen_pipeline_combo.bind('<<ComboboxSelected>>', self.on_gen_pipeline_change)
+        
+        # Конфигурация генератора
+        self.gen_config_frame = ttk.LabelFrame(left_gen, text="Параметры сигнала", padding=5)
+        self.gen_config_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        self.build_generator_config_ui("Signal Generator")
+        
+        # Кнопка генерации
+        gen_btn_frame = ttk.Frame(left_gen, padding=5)
+        gen_btn_frame.pack(fill=tk.X, padx=5, pady=5)
+        ttk.Button(gen_btn_frame, text="🔄 Сгенерировать сигнал", command=self.run_signal_generator).pack(fill=tk.X, pady=5)
+        
+        # ---------- Правая панель генератора ----------
+        # График предпросмотра
+        self.gen_fig, self.gen_ax = plt.subplots(figsize=(6, 4))
+        self.gen_canvas = FigureCanvasTkAgg(self.gen_fig, master=right_gen)
+        self.gen_canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+        self.gen_ax.set_title("Предпросмотр сигнала")
+        self.gen_ax.set_xlabel("Время, с")
+        self.gen_ax.set_ylabel("Амплитуда")
+        
+        # Метрики
+        self.metrics_frame = ttk.LabelFrame(right_gen, text="Метрики сигнала", padding=5)
+        self.metrics_frame.pack(side=tk.BOTTOM, fill=tk.BOTH, expand=True, padx=5, pady=5)
+        self.metrics_text = tk.Text(self.metrics_frame, height=10, width=50)
+        self.metrics_text.pack(fill=tk.BOTH, expand=True)
+        
+        plt.tight_layout()
+    
+    def build_pipeline_config_ui(self, pipeline_name: str):
+        """Строит UI для конфигурации выбранного пайплайна."""
+        # Очищаем старые виджеты
+        for widget in self.config_frame.winfo_children():
+            widget.destroy()
+        self.pipeline_config_widgets.clear()
+        
+        pipeline = self.plugin_manager.get_pipeline(pipeline_name)
+        if not pipeline:
+            ttk.Label(self.config_frame, text="Пайплайн не найден").pack()
+            return
+        
+        schema = pipeline.get_config_schema()
+        
+        row = 0
+        for param_name, param_info in schema.items():
+            label_text = param_info.get("label", param_name)
+            param_type = param_info.get("type", "str")
+            default_value = param_info.get("default", "")
+            
+            ttk.Label(self.config_frame, text=f"{label_text}:").grid(row=row, column=0, sticky=tk.W, padx=5, pady=2)
+            
+            if param_type == "bool":
+                var = tk.BooleanVar(value=default_value)
+                widget = ttk.Checkbutton(self.config_frame, variable=var)
+                widget.grid(row=row, column=1, sticky=tk.W, padx=5, pady=2)
+                self.pipeline_config_widgets[param_name] = {"type": "bool", "var": var}
+            elif param_type == "list" and "options" in param_info:
+                var = tk.StringVar(value=default_value)
+                widget = ttk.Combobox(self.config_frame, textvariable=var, values=param_info["options"], width=20)
+                widget.grid(row=row, column=1, sticky=tk.W, padx=5, pady=2)
+                self.pipeline_config_widgets[param_name] = {"type": "list", "var": var}
+            elif param_type == "int":
+                var = tk.IntVar(value=default_value)
+                widget = ttk.Entry(self.config_frame, textvariable=var, width=10)
+                widget.grid(row=row, column=1, sticky=tk.W, padx=5, pady=2)
+                self.pipeline_config_widgets[param_name] = {"type": "int", "var": var}
+            elif param_type == "float":
+                var = tk.DoubleVar(value=default_value)
+                widget = ttk.Entry(self.config_frame, textvariable=var, width=10)
+                widget.grid(row=row, column=1, sticky=tk.W, padx=5, pady=2)
+                self.pipeline_config_widgets[param_name] = {"type": "float", "var": var}
+            else:  # str
+                var = tk.StringVar(value=default_value)
+                widget = ttk.Entry(self.config_frame, textvariable=var, width=20)
+                widget.grid(row=row, column=1, sticky=tk.W, padx=5, pady=2)
+                self.pipeline_config_widgets[param_name] = {"type": "str", "var": var}
+            
+            row += 1
+    
+    def build_generator_config_ui(self, pipeline_name: str):
+        """Строит UI для конфигурации генератора сигналов."""
+        # Очищаем старые виджеты
+        for widget in self.gen_config_frame.winfo_children():
+            widget.destroy()
+        
+        pipeline = self.plugin_manager.get_pipeline(pipeline_name)
+        if not pipeline:
+            ttk.Label(self.gen_config_frame, text="Пайплайн не найден").pack()
+            return
+        
+        schema = pipeline.get_config_schema()
+        
+        # Используем grid для более компактного расположения
+        row = 0
+        for param_name, param_info in schema.items():
+            label_text = param_info.get("label", param_name)
+            param_type = param_info.get("type", "str")
+            default_value = param_info.get("default", "")
+            
+            ttk.Label(self.gen_config_frame, text=f"{label_text}:").grid(row=row, column=0, sticky=tk.W, padx=5, pady=2)
+            
+            if param_type == "bool":
+                var = tk.BooleanVar(value=default_value)
+                widget = ttk.Checkbutton(self.gen_config_frame, variable=var)
+                widget.grid(row=row, column=1, sticky=tk.W, padx=5, pady=2)
+                setattr(self, f"gen_{param_name}", var)
+            elif param_type == "list" and "options" in param_info:
+                var = tk.StringVar(value=default_value)
+                widget = ttk.Combobox(self.gen_config_frame, textvariable=var, values=param_info["options"], width=20)
+                widget.grid(row=row, column=1, sticky=tk.W, padx=5, pady=2)
+                setattr(self, f"gen_{param_name}", var)
+            elif param_type == "int":
+                var = tk.IntVar(value=default_value)
+                widget = ttk.Entry(self.gen_config_frame, textvariable=var, width=10)
+                widget.grid(row=row, column=1, sticky=tk.W, padx=5, pady=2)
+                setattr(self, f"gen_{param_name}", var)
+            elif param_type == "float":
+                var = tk.DoubleVar(value=default_value)
+                widget = ttk.Entry(self.gen_config_frame, textvariable=var, width=10)
+                widget.grid(row=row, column=1, sticky=tk.W, padx=5, pady=2)
+                setattr(self, f"gen_{param_name}", var)
+            else:  # str
+                var = tk.StringVar(value=default_value)
+                widget = ttk.Entry(self.gen_config_frame, textvariable=var, width=20)
+                widget.grid(row=row, column=1, sticky=tk.W, padx=5, pady=2)
+                setattr(self, f"gen_{param_name}", var)
+            
+            row += 1
+    
+    def on_pipeline_change(self, event=None):
+        """Обработчик смены пайплайна."""
+        selected = self.pipeline_var.get()
+        self.active_pipeline_name = selected
+        self.build_pipeline_config_ui(selected)
+        logger.info(f"Выбран пайплайн: {selected}")
+    
+    def on_gen_pipeline_change(self, event=None):
+        """Обработчик смены пайплайна генератора."""
+        selected = self.gen_pipeline_var.get()
+        self.build_generator_config_ui(selected)
+        logger.info(f"Выбран пайплайн генератора: {selected}")
 
     def browse_directory(self):
         directory = filedialog.askdirectory(title="Выберите рабочую директорию")
@@ -370,35 +569,197 @@ class PSDApp:
             messagebox.showerror("Ошибка сохранения", str(e))
 
     def run_full_pipeline(self) -> None:
-        """Запускает полный пайплайн PSD_pipeline для текущего файла"""
+        """Запускает полный пайплайн через систему плагинов."""
         if not self.current_file or not self.work_dir:
             logger.warning("Попытка запуска пайплайна без выбора файла или директории")
             messagebox.showwarning("Предупреждение", "Сначала выберите рабочую директорию и файл.")
             return
-            
-        try:
-            cutoff = self.cutoff_hz_var.get()
-        except tk.TclError:
-            cutoff = 0.0
-            logger.warning("Некорректное значение частоты отсечки, установлено 0")
-            
-        # Формируем аргумент каналов (пока передаем 0 - все каналы, 
-        # так как GUI не поддерживает множественный выбор)
-        channels_arg = 0
+        
+        # Получаем выбранный пайплайн
+        pipeline_name = self.pipeline_var.get()
+        pipeline = self.plugin_manager.get_pipeline(pipeline_name)
+        
+        if not pipeline:
+            messagebox.showerror("Ошибка", f"Пайплайн '{pipeline_name}' не найден.")
+            return
         
         try:
-            output_dir = PSD_pipeline.process_psd_pipeline(
-                directory=self.work_dir,
-                filename=self.current_file,
-                channels=channels_arg,
-                cutoff_hz=cutoff
-            )
-            if output_dir:
-                logger.info(f"Полный пайплайн выполнен успешно: {output_dir}")
-                messagebox.showinfo("Успех", f"Полный пайплайн выполнен!\nРезультаты в:\n{output_dir}")
+            # Собираем конфигурацию из UI
+            config_dict = {}
+            for param_name, widget_info in self.pipeline_config_widgets.items():
+                var = widget_info["var"]
+                param_type = widget_info["type"]
+                
+                try:
+                    if param_type == "bool":
+                        config_dict[param_name] = var.get()
+                    elif param_type == "int":
+                        config_dict[param_name] = var.get()
+                    elif param_type == "float":
+                        config_dict[param_name] = float(var.get())
+                    elif param_type == "list" or param_type == "str":
+                        config_dict[param_name] = var.get()
+                except (tk.TclError, ValueError) as e:
+                    logger.warning(f"Ошибка получения значения {param_name}: {e}")
+                    config_dict[param_name] = None
+            
+            # Добавляем путь к рабочей директории
+            config_dict["output_dir"] = os.path.join(self.work_dir, "output")
+            
+            # Создаем объект конфигурации
+            config = PipelineConfig(**config_dict)
+            
+            # Читаем данные из файла
+            input_path = Path(self.work_dir) / "input" / self.current_file
+            df = pd.read_csv(input_path)
+            
+            # Запускаем пайплайн
+            result = pipeline.run(df, config)
+            
+            if result.get("success"):
+                logger.info(f"Пайплайн выполнен успешно: {result.get('message')}")
+                messagebox.showinfo("Успех", f"{result.get('message')}\n\nФайлы:\n{chr(10).join(result.get('files', []))}")
+                
+                # Если есть графики - отображаем
+                if result.get("plots"):
+                    self._display_pipeline_plots(result["plots"])
+            else:
+                messagebox.showerror("Ошибка пайплайна", result.get("message", "Неизвестная ошибка"))
+                
         except Exception as e:
             logger.error(f"Ошибка выполнения пайплайна: {e}")
             messagebox.showerror("Ошибка пайплайна", str(e))
+    
+    def _display_pipeline_plots(self, plots: List[Dict[str, Any]]) -> None:
+        """Отображает результаты пайплайна на графиках."""
+        if not plots:
+            return
+        
+        # Очищаем текущие графики
+        self.time_ax.clear()
+        self.psd_ax.clear()
+        
+        plot_data = plots[0]  # Берем первый график для отображения
+        
+        x_data = np.array(plot_data.get("x", []))
+        y_data_list = plot_data.get("y", [])
+        labels = plot_data.get("labels", [])
+        
+        if len(y_data_list) > 0 and len(x_data) > 0:
+            # Отображаем первый канал на временном графике (если это временной ряд)
+            if "time" in plot_data.get("xlabel", "").lower():
+                self.time_line, = self.time_ax.plot(x_data, y_data_list[0], label=labels[0] if labels else "Signal")
+                self.time_ax.set_title(plot_data.get("title", "Signal"))
+                self.time_ax.set_xlabel(plot_data.get("xlabel", "X"))
+                self.time_ax.set_ylabel(plot_data.get("ylabel", "Y"))
+                self.time_canvas.draw_idle()
+            
+            # Отображаем PSD или другой частотный график
+            if "freq" in plot_data.get("xlabel", "").lower() or "psd" in plot_data.get("title", "").lower():
+                for i, y_data in enumerate(y_data_list):
+                    label = labels[i] if i < len(labels) else f"Channel {i}"
+                    self.psd_ax.plot(x_data, y_data, label=label, alpha=0.7)
+                
+                self.psd_ax.set_title(plot_data.get("title", "PSD"))
+                self.psd_ax.set_xlabel(plot_data.get("xlabel", "Frequency (Hz)"))
+                self.psd_ax.set_ylabel(plot_data.get("ylabel", "PSD"))
+                self.psd_ax.legend()
+                self.psd_canvas.draw_idle()
+    
+    def run_signal_generator(self) -> None:
+        """Запускает генератор сигналов."""
+        pipeline_name = self.gen_pipeline_var.get()
+        pipeline = self.plugin_manager.get_pipeline(pipeline_name)
+        
+        if not pipeline:
+            messagebox.showerror("Ошибка", f"Пайплайн '{pipeline_name}' не найден.")
+            return
+        
+        try:
+            # Собираем параметры из атрибутов объекта
+            config_dict = {}
+            schema = pipeline.get_config_schema()
+            
+            for param_name, param_info in schema.items():
+                attr_name = f"gen_{param_name}"
+                if hasattr(self, attr_name):
+                    var = getattr(self, attr_name)
+                    param_type = param_info.get("type", "str")
+                    
+                    try:
+                        if param_type == "bool":
+                            config_dict[param_name] = var.get()
+                        elif param_type == "int":
+                            config_dict[param_name] = var.get()
+                        elif param_type == "float":
+                            config_dict[param_name] = float(var.get())
+                        else:  # str или list
+                            config_dict[param_name] = var.get()
+                    except (tk.TclError, ValueError) as e:
+                        logger.warning(f"Ошибка получения значения {param_name}: {e}")
+                        config_dict[param_name] = param_info.get("default")
+            
+            # Устанавливаем output_dir в input по умолчанию
+            if "output_dir" not in config_dict:
+                config_dict["output_dir"] = os.path.join(self.work_dir, "input") if self.work_dir else "input"
+            
+            config = PipelineConfig(**config_dict)
+            
+            # Пустой DataFrame для генератора (он не использует входные данные)
+            df = pd.DataFrame()
+            
+            # Запускаем генератор
+            result = pipeline.run(df, config)
+            
+            if result.get("success"):
+                logger.info(f"Генерация успешна: {result.get('message')}")
+                messagebox.showinfo("Успех", f"{result.get('message')}")
+                
+                # Обновляем график предпросмотра
+                if result.get("plots"):
+                    self._display_generator_plots(result["plots"])
+                
+                # Отображаем метрики
+                if result.get("metrics"):
+                    self.metrics_text.delete(1.0, tk.END)
+                    metrics = result["metrics"]
+                    for key, value in metrics.items():
+                        formatted_value = f"{value:.4f}" if isinstance(value, float) else str(value)
+                        self.metrics_text.insert(tk.END, f"{key}: {formatted_value}\n")
+                
+                # Обновляем список файлов во вкладке PSD
+                if self.work_dir:
+                    self.scan_input_folder()
+            else:
+                messagebox.showerror("Ошибка генерации", result.get("message", "Неизвестная ошибка"))
+                
+        except Exception as e:
+            logger.error(f"Ошибка генерации сигнала: {e}")
+            messagebox.showerror("Ошибка генерации", str(e))
+    
+    def _display_generator_plots(self, plots: List[Dict[str, Any]]) -> None:
+        """Отображает сгенерированный сигнал на графике предпросмотра."""
+        if not plots:
+            return
+        
+        self.gen_ax.clear()
+        plot_data = plots[0]
+        
+        x_data = np.array(plot_data.get("x", []))
+        y_data_list = plot_data.get("y", [])
+        labels = plot_data.get("labels", [])
+        
+        if len(y_data_list) > 0 and len(x_data) > 0:
+            for i, y_data in enumerate(y_data_list):
+                label = labels[i] if i < len(labels) else f"Signal {i}"
+                self.gen_ax.plot(x_data, y_data, label=label, linewidth=0.8)
+            
+            self.gen_ax.set_title(plot_data.get("title", "Generated Signal"))
+            self.gen_ax.set_xlabel(plot_data.get("xlabel", "Time (s)"))
+            self.gen_ax.set_ylabel(plot_data.get("ylabel", "Amplitude"))
+            self.gen_ax.legend()
+            self.gen_ax.grid(True, alpha=0.3)
+            self.gen_canvas.draw_idle()
 
 if __name__ == "__main__":
     # Устанавливаем рабочую директорию на уровень выше от текущей, если мы в input/
