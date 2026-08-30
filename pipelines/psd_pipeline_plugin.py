@@ -45,6 +45,53 @@ class PSDPipeline(BasePipeline):
         """
         return read_csv_input(work_dir, filename)
 
+    def compute_psd_fft(
+        self, 
+        times: np.ndarray, 
+        data: np.ndarray,
+        method: str = "welch",
+        nperseg: int = 256,
+        noverlap: int = None,
+        window: str = "hann"
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Computes PSD for all channels in data array.
+        Wrapper around the original compute_psd_fft function.
+        
+        Args:
+            times: Time array (1D)
+            data: Data array (2D: samples x channels)
+            method: PSD method ('welch', 'periodogram')
+            nperseg: Segment length
+            noverlap: Overlap length
+            window: Window function
+            
+        Returns:
+            Tuple of (frequencies, psd_data) where psd_data is (channels x freqs)
+        """
+        # Estimate sampling rate
+        dt = np.mean(np.diff(times))
+        fs = 1.0 / dt if dt > 0 else 1000.0
+        
+        # Compute PSD for each channel
+        all_freqs = None
+        all_psd_data = []
+        
+        for ch_idx in range(data.shape[1]):
+            signal = data[:, ch_idx]
+            freqs, psd = compute_psd_fft(
+                signal=signal,
+                fs=fs,
+                method=method,
+                nperseg=nperseg,
+                noverlap=noverlap,
+                window=window
+            )
+            all_freqs = freqs
+            all_psd_data.append(psd)
+        
+        return all_freqs, np.array(all_psd_data)
+
     def get_name(self) -> str:
         return "PSD Analysis"
 
