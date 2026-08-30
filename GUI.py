@@ -483,13 +483,14 @@ class PSDApp:
 
     def update_plots_for_channel(self, channel_idx: int) -> None:
         """Обновляет графики для конкретного канала с оптимизацией отрисовки."""
-        if self.data is None or self.psd_data is None:
+        if self.data is None or self.psd_data is None or self.freqs is None:
             return
 
         channel_name = self.headers[channel_idx]
 
         # Временной ряд - используем set_data вместо пересоздания
         if self.time_line is None:
+            self.time_ax.clear()
             self.time_line, = self.time_ax.plot(
                 self.times, self.data[:, channel_idx], 
                 color='blue', linewidth=0.8
@@ -497,14 +498,15 @@ class PSDApp:
             self.time_ax.set_title(f"Временной ряд: {channel_name}")
             self.time_ax.set_xlabel("Время, с")
             self.time_ax.set_ylabel("Давление")
+            self.time_canvas.draw_idle()
         else:
             self.time_line.set_data(self.times, self.data[:, channel_idx])
             self.time_ax.set_title(f"Временной ряд: {channel_name}")
-        
-        self.time_canvas.draw_idle()  # Более эффективная отрисовка
+            self.time_canvas.draw_idle()
 
         # PSD - используем set_data вместо пересоздания
         if self.psd_line is None:
+            self.psd_ax.clear()
             self.psd_line, = self.psd_ax.plot(
                 self.freqs, self.psd_data[channel_idx], 
                 color='green', linewidth=0.8
@@ -519,7 +521,7 @@ class PSDApp:
         self.psd_ax.set_xlim(0, self.get_cutoff_xlim())
         self.psd_canvas.draw_idle()
 
-        # Сохраняем последние вычисленные значения для возможной записи
+        # Сохраняем последние вычисленные значения для возможной записи (полные данные)
         self.last_psd_freqs = self.freqs
         self.last_psd_values = self.psd_data[channel_idx]
 
