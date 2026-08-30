@@ -37,7 +37,7 @@ class PSDApp:
         self.active_pipeline_name: str = ""
 
         # Переменные для хранения состояния
-        self.work_dir: str = ""
+        self.work_dir: Path = Path.cwd()  # Используем Path вместо str
         self.current_file: Optional[str] = None
         self.times: Optional[NDArray[np.float64]] = None          # массив времени
         self.data: Optional[NDArray[np.float64]] = None           # numpy массив данных
@@ -358,22 +358,22 @@ class PSDApp:
     def browse_directory(self):
         directory = filedialog.askdirectory(title="Выберите рабочую директорию")
         if directory:
-            self.work_dir = directory
-            self.dir_label.config(text=directory)
+            self.work_dir = Path(directory)
+            self.dir_label.config(text=str(directory))
             self.scan_input_folder()
 
     def scan_input_folder(self):
         """Сканирует подпапку input и обновляет список файлов."""
-        input_path = os.path.join(self.work_dir, "input")
-        if not os.path.isdir(input_path):
+        input_path = self.work_dir / "input"
+        if not input_path.is_dir():
             messagebox.showerror("Ошибка", "В выбранной директории нет папки 'input'.")
             return
-        files = [f for f in os.listdir(input_path) if f.lower().endswith('.csv')]
+        files = [f for f in input_path.iterdir() if f.suffix.lower() == '.csv']
         if not files:
             messagebox.showinfo("Информация", "В папке input нет CSV-файлов.")
         self.file_listbox.delete(0, tk.END)
         for f in files:
-            self.file_listbox.insert(tk.END, f)
+            self.file_listbox.insert(tk.END, f.name)
 
     def on_file_select(self, event):
         """Обработчик выбора файла из списка."""
@@ -775,8 +775,8 @@ if __name__ == "__main__":
     
     # Автоматически выбираем текущую директорию как рабочую, если она содержит input/
     if (Path.cwd() / "input").is_dir():
-        app.work_dir = str(Path.cwd())
-        app.dir_label.config(text=app.work_dir)
+        app.work_dir = Path.cwd()
+        app.dir_label.config(text=str(app.work_dir))
         app.scan_input_folder()
         logger.info(f"Автоматически выбрана рабочая директория: {app.work_dir}")
     
