@@ -375,17 +375,28 @@ class PSDApp:
         for f in files:
             self.file_listbox.insert(tk.END, f.name)
 
-    def on_file_select(self, event):
+    def on_file_select(self, event: Any) -> None:
         """Обработчик выбора файла из списка."""
         selection = self.file_listbox.curselection()
         if not selection:
             return
+            
         filename = self.file_listbox.get(selection[0])
+        self.logger.info(f"Выбран файл: {filename}")
         
         try:
-            # Используем функцию чтения из пайплайна!
-            self.times, self.data, self.headers, _ = PSD_pipeline.read_csv_input(self.work_dir, filename)
+            # Вызываем функцию чтения из пайплайна
+            # read_csv_input возвращает: times, data, headers, dc_offsets
+            result = PSD_pipeline.read_csv_input(self.work_dir, filename)
+            
+            # Распаковываем результат
+            self.times = result[0]
+            self.data = result[1]
+            self.headers = result[2]
+            # result[3] - dc_offsets (не используем пока)
+            
             self.current_file = filename
+            self.logger.info(f"Файл загружен успешно. Каналов: {len(self.headers)}")
             
             # Заполняем список каналов
             self.channel_listbox.delete(0, tk.END)
@@ -396,14 +407,26 @@ class PSDApp:
             # Рассчитываем PSD для всех каналов сразу при загрузке
             self.compute_all_psd()
             
-            # Очищаем графики
+            # Очищаем графики перед первым отображением
             self.time_ax.clear()
             self.psd_ax.clear()
             self.time_canvas.draw()
             self.psd_canvas.draw()
             
-        except (FileNotFoundError, ValueError) as e:
-            messagebox.showerror("Ошибка загрузки файла", str(e))
+        except FileNotFoundError as e:
+            error_msg = f"Файл не найден: {filename}"
+            self.logger.error(error_msg)
+            messagebox.showerror("Ошибка загрузки файла", error_msg)
+            self.current_file = None
+        except ValueError as e:
+            error_msg = f"Некорректный формат файла: {str(e)}"
+            self.logger.error(error_msg)
+            messagebox.showerror("Ошибка формата", error_msg)
+            self.current_file = None
+        except Exception as e:
+            error_msg = f"Неожиданная ошибка: {str(e)}"
+            self.logger.error(error_msg, exc_info=True)
+            messagebox.showerror("Ошибка", error_msg)
             self.current_file = None
 
     def compute_all_psd(self):
