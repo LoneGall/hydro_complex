@@ -473,7 +473,7 @@ class PSDApp:
     def get_cutoff_xlim(self):
         """Возвращает предел по X для графиков на основе отсечки"""
         try:
-            cutoff = self.cutoff_hz.get()
+            cutoff = self.cutoff_hz_var.get()
         except tk.TclError:
             cutoff = 0
             
@@ -586,7 +586,7 @@ class PSDApp:
         
         # Формируем подпись отсечки
         try:
-            cutoff = self.cutoff_hz.get()
+            cutoff = self.cutoff_hz_var.get()
         except tk.TclError:
             cutoff = 0
             
