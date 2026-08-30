@@ -38,6 +38,13 @@ class PSDPipelineConfig(PipelineConfig):
 class PSDPipeline(BasePipeline):
     """PSD Processing Pipeline Plugin."""
 
+    def read_csv_input(self, work_dir: Path, filename: str) -> Tuple[np.ndarray, np.ndarray, List[str], np.ndarray]:
+        """
+        Reads CSV input file and returns times, data, headers, dc_offsets.
+        Wrapper around the original read_csv_input function.
+        """
+        return read_csv_input(work_dir, filename)
+
     def get_name(self) -> str:
         return "PSD Analysis"
 
