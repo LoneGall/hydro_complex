@@ -39,7 +39,6 @@ class PipelineManager:
                     if issubclass(obj, BasePipeline) and obj is not BasePipeline:
                         instance = obj()
                         self._registry[instance.get_name()] = obj
-                        print(f"Registered pipeline: {instance.get_name()}")
                         
             except Exception as e:
                 print(f"Error loading pipeline from {file_path}: {e}")
