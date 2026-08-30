@@ -443,8 +443,13 @@ class PSDApp:
             return
         
         try:
-            # Вызов расчета из пайплайна (пока только whole FFT)
-            self.freqs, self.psd_data = PSD_pipeline.compute_psd_fft(self.times, self.data)
+            # Получаем активный пайплайн PSD
+            psd_pipeline = self.plugin_manager.get_pipeline("PSD Analysis")
+            if not psd_pipeline:
+                raise RuntimeError("Пайплайн 'PSD Analysis' не найден")
+            
+            # Вызов расчета из пайплайна через экземпляр
+            self.freqs, self.psd_data = psd_pipeline.compute_psd_fft(self.times, self.data)
         except Exception as e:
             messagebox.showerror("Ошибка расчета PSD", str(e))
             self.freqs = None
