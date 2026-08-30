@@ -30,6 +30,9 @@ class PSDApp:
         self.root = root
         self.root.title("Вычисление PSD сигналов")
         self.root.geometry("1400x800")
+        
+        # Инициализация логгера для экземпляра класса
+        self.logger = logging.getLogger(__name__)
 
         # Менеджер плагинов
         self.plugin_manager = PipelineManager()
