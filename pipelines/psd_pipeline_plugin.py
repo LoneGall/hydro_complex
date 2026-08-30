@@ -43,6 +43,9 @@ class PSDPipeline(BasePipeline):
         Reads CSV input file and returns times, data, headers, dc_offsets.
         Wrapper around the original read_csv_input function.
         """
+        # Ensure work_dir is a Path object
+        if isinstance(work_dir, str):
+            work_dir = Path(work_dir)
         return read_csv_input(work_dir, filename)
 
     def compute_psd_fft(
