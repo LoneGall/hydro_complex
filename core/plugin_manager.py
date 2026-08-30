@@ -43,9 +43,26 @@ class PipelineManager:
             except Exception as e:
                 print(f"Error loading pipeline from {file_path}: {e}")
 
-    def get_available_pipelines(self) -> List[str]:
-        """Returns a list of registered pipeline names."""
-        return list(self._registry.keys())
+    def get_available_pipelines(self, pipeline_type: Optional[str] = None) -> List[str]:
+        """
+        Returns a list of registered pipeline names.
+        
+        Args:
+            pipeline_type: Filter by type ('processing' or 'generator'). 
+                           If None, returns all pipelines.
+        """
+        if pipeline_type is None:
+            return list(self._registry.keys())
+        
+        filtered = []
+        for name, cls in self._registry.items():
+            try:
+                instance = cls()
+                if instance.get_type() == pipeline_type:
+                    filtered.append(name)
+            except Exception:
+                continue
+        return filtered
 
     def get_pipeline(self, name: str) -> Optional[BasePipeline]:
         """Instantiates and returns a pipeline by name."""

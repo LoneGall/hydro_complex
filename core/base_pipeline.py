@@ -8,6 +8,12 @@ import numpy as np
 import pandas as pd
 
 
+class PipelineType:
+    """Enumeration of pipeline types."""
+    PROCESSING = "processing"  # Data processing pipelines (e.g., PSD analysis)
+    GENERATOR = "generator"    # Signal generation pipelines
+
+
 class PipelineConfig:
     """Base class for pipeline configuration."""
     def __init__(self, **kwargs):
@@ -20,7 +26,7 @@ class PipelineConfig:
 
 class BasePipeline(ABC):
     """
-    Abstract base class for all processing pipelines.
+    Abstract base class for all pipeline plugins.
     
     To create a new pipeline plugin:
     1. Inherit from this class.
@@ -37,6 +43,11 @@ class BasePipeline(ABC):
     def get_description(self) -> str:
         """Returns a short description of what the pipeline does."""
         pass
+
+    @abstractmethod
+    def get_type(self) -> str:
+        """Returns the type of the pipeline (PROCESSING or GENERATOR)."""
+        return PipelineType.PROCESSING
 
     @abstractmethod
     def get_config_schema(self) -> Dict[str, Any]:
@@ -59,12 +70,12 @@ class BasePipeline(ABC):
         pass
 
     @abstractmethod
-    def run(self, data: pd.DataFrame, config: PipelineConfig) -> Dict[str, Any]:
+    def run(self, data: Optional[pd.DataFrame], config: PipelineConfig) -> Dict[str, Any]:
         """
         Executes the pipeline processing.
         
         Args:
-            data: Input data as a pandas DataFrame.
+            data: Input data as a pandas DataFrame (None for generators).
             config: Configuration object with parameters.
             
         Returns:
