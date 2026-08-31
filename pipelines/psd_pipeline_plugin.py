@@ -19,7 +19,7 @@ from PSD_pipeline import (
     process_psd_pipeline
 )
 
-from core.base_pipeline import BasePipeline, PipelineConfig
+from core.base_pipeline import BasePipeline, PipelineConfig, PipelineType
 
 
 class PSDPipelineConfig(PipelineConfig):
@@ -37,6 +37,10 @@ class PSDPipelineConfig(PipelineConfig):
 
 class PSDPipeline(BasePipeline):
     """PSD Processing Pipeline Plugin."""
+
+    def get_type(self) -> PipelineType:
+        """Returns the type of this pipeline (Processing)."""
+        return PipelineType.PROCESSING
 
     def read_csv_input(self, work_dir: Path, filename: str) -> Tuple[np.ndarray, np.ndarray, List[str], np.ndarray]:
         """
