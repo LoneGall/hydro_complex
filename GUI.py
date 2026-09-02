@@ -488,37 +488,35 @@ class PSDApp:
 
         channel_name = self.headers[channel_idx]
 
-        # Временной ряд - используем set_data вместо пересоздания
-        if self.time_line is None:
-            self.time_ax.clear()
-            self.time_line, = self.time_ax.plot(
-                self.times, self.data[:, channel_idx], 
-                color='blue', linewidth=0.8
-            )
-            self.time_ax.set_title(f"Временной ряд: {channel_name}")
-            self.time_ax.set_xlabel("Время, с")
-            self.time_ax.set_ylabel("Давление")
-            self.time_canvas.draw_idle()
-        else:
-            self.time_line.set_data(self.times, self.data[:, channel_idx])
-            self.time_ax.set_title(f"Временной ряд: {channel_name}")
-            self.time_canvas.draw_idle()
+        # Очищаем оси перед отрисовкой конкретного канала (чтобы убрать текст из режима "Все каналы")
+        self.time_ax.clear()
+        self.psd_ax.clear()
+        
+        # Сбрасываем ссылки на линии, чтобы они пересоздались
+        self.time_line = None
+        self.psd_line = None
+        self.psd_bg_lines = []
+        self.psd_envelope_line = None
 
-        # PSD - используем set_data вместо пересоздания
-        if self.psd_line is None:
-            self.psd_ax.clear()
-            self.psd_line, = self.psd_ax.plot(
-                self.freqs, self.psd_data[channel_idx], 
-                color='green', linewidth=0.8
-            )
-            self.psd_ax.set_title(f"PSD (метод: {self.psd_method_var.get()}) - {channel_name}")
-            self.psd_ax.set_xlabel("Частота, Гц")
-            self.psd_ax.set_ylabel("PSD")
-            self.psd_canvas.draw_idle()
-        else:
-            self.psd_line.set_data(self.freqs, self.psd_data[channel_idx])
-            self.psd_ax.set_title(f"PSD (метод: {self.psd_method_var.get()}) - {channel_name}")
-            self.psd_canvas.draw_idle()
+        # Временной ряд
+        self.time_line, = self.time_ax.plot(
+            self.times, self.data[:, channel_idx], 
+            color='blue', linewidth=0.8
+        )
+        self.time_ax.set_title(f"Временной ряд: {channel_name}")
+        self.time_ax.set_xlabel("Время, с")
+        self.time_ax.set_ylabel("Давление")
+        self.time_canvas.draw_idle()
+
+        # PSD
+        self.psd_line, = self.psd_ax.plot(
+            self.freqs, self.psd_data[channel_idx], 
+            color='green', linewidth=0.8
+        )
+        self.psd_ax.set_title(f"PSD (метод: {self.psd_method_var.get()}) - {channel_name}")
+        self.psd_ax.set_xlabel("Частота, Гц")
+        self.psd_ax.set_ylabel("PSD")
+        self.psd_canvas.draw_idle()
         
         self.psd_ax.set_xlim(0, self.get_cutoff_xlim())
         self.psd_canvas.draw_idle()
